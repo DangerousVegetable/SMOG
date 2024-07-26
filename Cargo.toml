@@ -5,8 +5,10 @@ edition = "2021"
 
 [dependencies]
 bevy = "0.14.0"
+bytemuck = "1.16.1"
 rand = "0.8.5"
 rayon = "1.10.0"
+wgpu = "0.20.1"
 
 # Enable a small amount of optimization in the dev profile.
 [profile.dev]

@@ -3320,8 +3320,10 @@ name = "smog"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "bytemuck",
  "rand",
  "rayon",
+ "wgpu",
 ]
 
 [[package]]

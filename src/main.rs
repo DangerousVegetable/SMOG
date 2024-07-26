@@ -1,37 +1,76 @@
 use std::time::{Duration, Instant};
 
 use bevy::{
-    color::palettes::css::RED, input::mouse::{MouseButtonInput, MouseScrollUnit, MouseWheel}, math::{vec2, vec3}, prelude::*, render::camera::ScalingMode, sprite::Anchor
+    color::palettes::css::RED,
+    input::mouse::{MouseButtonInput, MouseScrollUnit, MouseWheel},
+    math::{vec2, vec3, Vec3A},
+    prelude::*,
+    render::{camera::ScalingMode, extract_component::ExtractComponent, primitives::Aabb},
+    sprite::Anchor,
 };
 
 mod multithreaded;
 mod particle;
 mod solver;
 
+mod pipeline;
+
+use pipeline::RenderSimulationPlugin;
 use solver::Solver;
 
 const SUB_TICKS: usize = 8;
 
-#[derive(Resource)]
+#[derive(Component)]
 struct Simulation(Solver);
 
 #[derive(Component)]
 struct ParticleId(usize);
 
-fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut simulation: ResMut<Simulation>) {
+fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+    let solver = Solver::new(
+        solver::Constraint::Box(vec2(-60., -10.), vec2(60., 40.)),
+        solver::PARTICLE_SIZE * 2.,
+        &[],
+        &[],
+    );
+    let mut simulation = Simulation(solver);
     let (bl, tr) = simulation.0.constraint.bounds();
     let projection = OrthographicProjection {
         scale: 1.0,
         scaling_mode: ScalingMode::FixedHorizontal(tr.x - bl.x),
         ..Default::default()
     };
+
     // Spawn the camera with the custom projection
     commands.spawn(Camera2dBundle {
         projection: projection.into(),
         ..Default::default()
     });
 
-    simulation.0.change_number(10000);
+    for i in 0..100 {
+        for j in 0..100 {
+            let pos_x = (tr.x - bl.x) / 150. * i as f32
+                + bl.x
+                + solver::PARTICLE_SIZE
+                + if j % 2 == 0 {
+                    0.
+                } else {
+                    solver::PARTICLE_SIZE
+                };
+            let pos_y = -(tr.y - bl.y) / 150. * j as f32 + tr.y - solver::PARTICLE_SIZE;
+            simulation
+                .0
+                .add_particle(particle::SAND.place(vec2(pos_x, pos_y)));
+        }
+    }
+
+    commands
+        .spawn(SpatialBundle {
+            visibility: Visibility::Visible,
+            transform: Transform::IDENTITY,
+            ..default()
+        })
+        .insert(simulation);
 
     // Spawn the counter
     let text_style = TextStyle {
@@ -48,54 +87,18 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut simulation:
 }
 
 fn update_particle_sprites(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    simulation: Res<Simulation>,
+    mut simulation: Query<&mut Simulation>,
     mut counter: Query<&mut Text>,
-    mut sprites: Query<(Entity, &mut Transform, &ParticleId)>,
 ) {
-    let mut last_ind = None;
-    for (sprite, mut transform, i) in &mut sprites {
-        let ind = i.0;
-        if ind >= simulation.0.particles.len() {
-            commands.entity(sprite).despawn();
-            continue;
-        }
-
-        let p = &simulation.0.particles[ind];
-        transform.translation.x = p.pos.x;
-        transform.translation.y = p.pos.y;
-        last_ind = Some(ind);
-    }
-
-    let last_ind = last_ind.map_or(0, |i| i + 1);
-
-    let texture_handle: Handle<Image> = asset_server.load("particle-xd.png");
-    for i in last_ind..simulation.0.particles.len() {
-        let p = &simulation.0.particles[i];
-        commands.spawn((
-            SpriteBundle {
-                texture: texture_handle.clone(),
-                sprite: Sprite {
-                    custom_size: Some(Vec2::new(
-                        2. * solver::PARTICLE_SIZE,
-                        2. * solver::PARTICLE_SIZE,
-                    )),
-                    ..Default::default()
-                },
-                transform: Transform::from_xyz(p.pos.x, p.pos.y, -1.),
-                ..default()
-            },
-            ParticleId(i),
-        ));
-    }
+    let simulation = simulation.single_mut();
 
     let mut text = counter.single_mut();
     text.sections[0].value = format!("{}", simulation.0.particles.len());
 }
 
-fn update_physics(mut simulation: ResMut<Simulation>) {
-    //let time = Instant::now();
+fn update_physics(mut simulation: Query<&mut Simulation>) {
+    let time = Instant::now();
+    let mut simulation = simulation.single_mut();
     for _ in 0..SUB_TICKS {
         let dt = 0.08 / SUB_TICKS as f32;
         simulation.0.solve(dt);
@@ -106,10 +109,11 @@ fn update_physics(mut simulation: ResMut<Simulation>) {
 fn control_system(
     mut evr_scroll: EventReader<MouseWheel>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
-    mut simulation: ResMut<Simulation>,
+    mut simulation: Query<&mut Simulation>,
     mut query: Query<(&mut OrthographicProjection, &mut Transform), With<Camera>>,
 ) {
     let (mut projection, mut camera_transform) = query.single_mut();
+    let mut simulation = simulation.single_mut();
 
     for ev in evr_scroll.read() {
         projection.scale *= f32::powf(1.25, ev.y);
@@ -134,10 +138,12 @@ fn control_system(
 
     let size = simulation.0.particles.len();
     if keyboard_input.pressed(KeyCode::Space) {
-        simulation.0.change_number(size + 10*factor as usize);
+        simulation.0.change_number(size + 10 * factor as usize);
     }
     if keyboard_input.pressed(KeyCode::Delete) {
-        simulation.0.change_number(std::cmp::max(0, size as isize - 40*factor as isize) as usize);
+        simulation
+            .0
+            .change_number(std::cmp::max(0, size as isize - 40 * factor as isize) as usize);
     }
 }
 
@@ -147,17 +153,10 @@ fn main() {
     //    .build_global()
     //    .unwrap();
 
-    let solver = Solver::new(
-        solver::Constraint::Box(vec2(-60., -10.), vec2(60., 40.)),
-        solver::PARTICLE_SIZE * 2.,
-        &[],
-        &[],
-    );
-
     App::new()
         .add_plugins(DefaultPlugins)
+        .add_plugins(RenderSimulationPlugin)
         .insert_resource(Time::<Fixed>::from_duration(Duration::from_millis(16)))
-        .insert_resource(Simulation(solver))
         .add_systems(Startup, setup)
         .add_systems(FixedUpdate, update_physics)
         .add_systems(Update, update_particle_sprites)
