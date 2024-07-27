@@ -28,7 +28,7 @@ struct ParticleId(usize);
 
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     let solver = Solver::new(
-        solver::Constraint::Box(vec2(-60., -10.), vec2(60., 40.)),
+        solver::Constraint::Box(vec2(-150., -50.), vec2(150., 250.)),
         solver::PARTICLE_SIZE * 2.,
         &[],
         &[],
@@ -97,10 +97,10 @@ fn update_particle_sprites(
 }
 
 fn update_physics(mut simulation: Query<&mut Simulation>) {
-    let time = Instant::now();
+    //let time = Instant::now();
     let mut simulation = simulation.single_mut();
     for _ in 0..SUB_TICKS {
-        let dt = 0.08 / SUB_TICKS as f32;
+        let dt = 1./60./ SUB_TICKS as f32;
         simulation.0.solve(dt);
     }
     //println!("elapsed: {}", (Instant::now() - time).as_nanos() as f32 / 1000000.);
@@ -124,16 +124,16 @@ fn control_system(
         factor = 5.;
     }
     if keyboard_input.pressed(KeyCode::KeyA) {
-        camera_transform.translation.x -= 0.05 * factor;
+        camera_transform.translation.x -= 0.1 * factor;
     }
     if keyboard_input.pressed(KeyCode::KeyD) {
-        camera_transform.translation.x += 0.05 * factor;
+        camera_transform.translation.x += 0.1 * factor;
     }
     if keyboard_input.pressed(KeyCode::KeyS) {
-        camera_transform.translation.y -= 0.05 * factor;
+        camera_transform.translation.y -= 0.1 * factor;
     }
     if keyboard_input.pressed(KeyCode::KeyW) {
-        camera_transform.translation.y += 0.05 * factor;
+        camera_transform.translation.y += 0.1 * factor;
     }
 
     let size = simulation.0.particles.len();
@@ -153,10 +153,12 @@ fn main() {
     //    .build_global()
     //    .unwrap();
 
+    const PHYSICS_UPDATE_TIME: u64 = 1000000000/64;
+
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(RenderSimulationPlugin)
-        .insert_resource(Time::<Fixed>::from_duration(Duration::from_millis(16)))
+        .insert_resource(Time::<Fixed>::from_duration(Duration::from_nanos(PHYSICS_UPDATE_TIME)))
         .add_systems(Startup, setup)
         .add_systems(FixedUpdate, update_physics)
         .add_systems(Update, update_particle_sprites)

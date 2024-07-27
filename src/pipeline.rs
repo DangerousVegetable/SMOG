@@ -7,7 +7,7 @@
 //! into Bevy—render nodes are another, lower-level method—but it does allow
 //! for better reuse of parts of Bevy's built-in mesh rendering logic.
 
-use std::mem;
+use std::{mem, num::NonZeroU32};
 
 use bevy::{
     core_pipeline::{
@@ -24,25 +24,13 @@ use bevy::{
     math::{vec3, FloatOrd, Vec3A},
     prelude::*,
     render::{
-        camera::{CameraProjection, ExtractedCamera},
-        extract_component::{ExtractComponent, ExtractComponentPlugin},
-        primitives::Aabb,
-        render_phase::{
+        camera::{CameraProjection, ExtractedCamera}, extract_component::{ExtractComponent, ExtractComponentPlugin}, primitives::Aabb, render_asset::RenderAssets, render_phase::{
             AddRenderCommand, BinnedRenderPhaseType, DrawFunctions, PhaseItem, PhaseItemExtraIndex,
             RenderCommand, RenderCommandResult, SetItemPipeline, TrackedRenderPass,
             ViewBinnedRenderPhases, ViewSortedRenderPhases,
-        },
-        render_resource::{
-            BindGroup, BindGroupLayout, Buffer, BufferUsages, ColorTargetState, ColorWrites,
-            CompareFunction, DepthStencilState, FragmentState, IndexFormat, MultisampleState,
-            PipelineCache, PrimitiveState, RawBufferVec, RenderPipelineDescriptor,
-            SpecializedRenderPipeline, SpecializedRenderPipelines, TextureFormat, VertexAttribute,
-            VertexBufferLayout, VertexFormat, VertexState, VertexStepMode,
-        },
-        renderer::{RenderDevice, RenderQueue},
-        texture::BevyDefault as _,
-        view::{self, ExtractedView, VisibilitySystems, VisibleEntities},
-        Render, RenderApp, RenderSet,
+        }, render_resource::{
+            binding_types::{sampler, texture_2d}, BindGroup, BindGroupEntries, BindGroupLayout, BindGroupLayoutEntries, Buffer, BufferUsages, ColorTargetState, ColorWrites, CompareFunction, DepthStencilState, FragmentState, IndexFormat, MultisampleState, PipelineCache, PrimitiveState, RawBufferVec, RenderPipelineDescriptor, SpecializedRenderPipeline, SpecializedRenderPipelines, TextureFormat, VertexAttribute, VertexBufferLayout, VertexFormat, VertexState, VertexStepMode
+        }, renderer::{RenderDevice, RenderQueue}, texture::{BevyDefault as _, GpuImage}, view::{self, ExtractedView, ViewUniforms, VisibilitySystems, VisibleEntities}, Render, RenderApp, RenderSet
     },
 };
 use bytemuck::{Pod, Zeroable};
@@ -51,6 +39,7 @@ pub mod particle;
 mod vertex;
 
 use vertex::Vertex;
+use wgpu::{SamplerBindingType, ShaderStages, TextureSampleType};
 
 use crate::Simulation;
 
@@ -66,7 +55,8 @@ use crate::Simulation;
 #[derive(Resource)]
 struct SimulationPipeline {
     shader: Handle<Shader>,
-    uniform_bind_group_layout: BindGroupLayout,
+    uniforms_bind_group_layout: BindGroupLayout,
+    textures_bind_group_layout: BindGroupLayout,
 }
 
 /// A [`RenderCommand`] that binds the vertex and index buffers and issues the
@@ -93,8 +83,13 @@ where
         let Some(simulation_buffers) = simulation_buffers else {
             return RenderCommandResult::Failure;
         };
-        
-        pass.set_bind_group(0, &simulation_buffers.uniform_bind_group, &[]);
+
+        if simulation_buffers.particles.len() == 0 {
+            return RenderCommandResult::Success;
+        }
+
+        pass.set_bind_group(0, &simulation_buffers.uniforms_bind_group, &[]);
+        pass.set_bind_group(1, &simulation_buffers.textures_bind_group, &[]);
         pass.set_vertex_buffer(0, simulation_buffers.vertices.slice(..));
         pass.set_vertex_buffer(1, simulation_buffers.particles.buffer().unwrap().slice(..));
         pass.set_index_buffer(
@@ -123,9 +118,12 @@ struct SimulationBuffers {
     // particles index buffer
     indices: Buffer,
 
-    // uniform bindgroup
-    uniform_bind_group: BindGroup,
+    // uniform bind group
+    uniforms_bind_group: BindGroup,
     uniforms: Buffer,
+
+    // textures bind group
+    textures_bind_group: BindGroup,
 }
 
 /// The custom draw commands that Bevy executes for each entity we enqueue into
@@ -146,11 +144,13 @@ pub struct RenderSimulationPlugin;
 
 impl Plugin for RenderSimulationPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(ExtractComponentPlugin::<Simulation>::default());
+        app.add_plugins(GpuFeatureSupportChecker)
+            .add_plugins(ExtractComponentPlugin::<Simulation>::default());
     }
 
     fn finish(&self, app: &mut App) {
         app.sub_app_mut(RenderApp)
+            .init_resource::<SimulationTextures>()
             .init_resource::<SimulationPipeline>()
             .init_resource::<SpecializedRenderPipelines<SimulationPipeline>>()
             .add_render_command::<Transparent2d, DrawSimulationCommands>()
@@ -159,6 +159,32 @@ impl Plugin for RenderSimulationPlugin {
                 prepare_simulation_buffers.in_set(RenderSet::PrepareResources),
             )
             .add_systems(Render, queue_custom_phase_item.in_set(RenderSet::Queue));
+    }
+}
+
+struct GpuFeatureSupportChecker;
+
+impl Plugin for GpuFeatureSupportChecker {
+    fn build(&self, _app: &mut App) {}
+
+    fn finish(&self, app: &mut App) {
+        let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
+            return;
+        };
+
+        let render_device = render_app.world().resource::<RenderDevice>();
+
+        if !render_device
+            .features()
+            .contains(wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING)
+        {
+            error!(
+                "Render device doesn't support feature \
+                SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING, \
+                which is required for texture binding arrays"
+            );
+            std::process::exit(1);
+        }
     }
 }
 
@@ -218,7 +244,9 @@ impl SpecializedRenderPipeline for SimulationPipeline {
     fn specialize(&self, msaa: Self::Key) -> RenderPipelineDescriptor {
         RenderPipelineDescriptor {
             label: Some("simulation render pipeline".into()),
-            layout: vec![self.uniform_bind_group_layout.clone()],
+            layout: vec![
+                self.uniforms_bind_group_layout.clone(), 
+                self.textures_bind_group_layout.clone()],
             push_constant_ranges: vec![],
             vertex: VertexState {
                 shader: self.shader.clone(),
@@ -235,7 +263,18 @@ impl SpecializedRenderPipeline for SimulationPipeline {
                     // HDR format and substitute the appropriate texture format
                     // here, but we omit that for simplicity.
                     format: TextureFormat::bevy_default(),
-                    blend: None,
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::SrcAlpha,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::One,
+                            operation: wgpu::BlendOperation::Max,
+                        },
+                    }),
                     write_mask: ColorWrites::ALL,
                 })],
             }),
@@ -255,12 +294,14 @@ impl SpecializedRenderPipeline for SimulationPipeline {
 fn prepare_simulation_buffers(
     mut commands: Commands,
     views: Query<(Entity, &ExtractedView)>,
+    //view_uniforms: Res<ViewUniforms>,
     simulations: Query<(Entity, &Simulation)>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
+    image_assets: Res<RenderAssets<GpuImage>>,
+    simulation_textures: Res<SimulationTextures>,
     pipeline: Res<SimulationPipeline>,
 ) {
-    
     for (_, extracted_view) in views.iter() {
         let world_from_view = extracted_view.world_from_view.compute_matrix();
         let view_from_world = world_from_view.inverse();
@@ -268,59 +309,112 @@ fn prepare_simulation_buffers(
 
         for (entity, simulation) in &simulations {
             // handling particles
-            let vertices = render_device.create_buffer_with_data(&wgpu::util::BufferInitDescriptor {
-                label: Some("particle vertex buffer"),
-                contents: bytemuck::cast_slice(&particle::Raw::vertices()),
-                usage: BufferUsages::VERTEX,
-            });
-            
+            let vertices =
+                render_device.create_buffer_with_data(&wgpu::util::BufferInitDescriptor {
+                    label: Some("simulation vertex buffer"),
+                    contents: bytemuck::cast_slice(&particle::Raw::vertices()),
+                    usage: BufferUsages::VERTEX,
+                });
+
             let mut particles = RawBufferVec::new(BufferUsages::VERTEX);
             for p in simulation.0.particles.iter() {
                 particles.push(particle::Raw::from_particle(p));
             }
-            
+
             particles.write_buffer(&render_device, &render_queue);
-            
-            let indices = render_device.create_buffer_with_data(&wgpu::util::BufferInitDescriptor {
-                label: Some("particle index buffer"),
-                contents: bytemuck::cast_slice(&particle::Raw::indices()),
-                usage: BufferUsages::INDEX,
-            });
-            
+
+            let indices =
+                render_device.create_buffer_with_data(&wgpu::util::BufferInitDescriptor {
+                    label: Some("simulation index buffer"),
+                    contents: bytemuck::cast_slice(&particle::Raw::indices()),
+                    usage: BufferUsages::INDEX,
+                });
+
             // handling uniforms
-            let uniforms = render_device.create_buffer_with_data(&wgpu::util::BufferInitDescriptor {
-                label: Some("particles uniform buffer"),
-                contents: bytemuck::bytes_of(&clip_from_world),
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
-            
-            let uniform_bind_group = render_device.create_bind_group(
-                Some("particles uniform bind group"),
-                &pipeline.uniform_bind_group_layout,
+            let uniforms =
+                render_device.create_buffer_with_data(&wgpu::util::BufferInitDescriptor {
+                    label: Some("simulation uniform buffer"),
+                    contents: bytemuck::bytes_of(&clip_from_world),
+                    usage: wgpu::BufferUsages::UNIFORM,
+                });
+
+            let uniforms_bind_group = render_device.create_bind_group(
+                Some("simulation uniform bind group"),
+                &pipeline.uniforms_bind_group_layout,
                 &[wgpu::BindGroupEntry {
                     binding: 0,
                     resource: uniforms.as_entire_binding(),
                 }],
             );
-            
+
+            // TODO: binding textures every frame is not optimal, need to move this code into another function
+            // handling textures 
+            let mut images = vec![];
+            for handle in simulation_textures.textures.iter() {
+                match image_assets.get(handle) {
+                    Some(image) => images.push(image),
+                    None => panic!("No image {handle:?} found in assets folder!"),
+                }
+            }
+
+            let sampler = &images[0].sampler;
+            let textures: Vec<&wgpu::TextureView> = images.into_iter()
+                .map(|image| {
+                    &*image.texture_view
+                })
+                .collect();
+
+            let textures_bind_group = render_device.create_bind_group(
+                "simulation textures bind group",
+                &pipeline.textures_bind_group_layout,
+                &BindGroupEntries::sequential((&textures[..], sampler)),
+            );
+
             commands.entity(entity).insert(SimulationBuffers {
                 vertices,
                 particles,
                 indices,
                 uniforms,
-                uniform_bind_group
+                uniforms_bind_group,
+                textures_bind_group,
             });
         }
     }
 }
-    
-    impl FromWorld for SimulationPipeline {
-        fn from_world(world: &mut World) -> Self {
-            // Load and compile the shader in the background.
-            let asset_server = world.resource::<AssetServer>();
-            let render_device = world.resource::<RenderDevice>();
 
-        let uniform_bind_group_layout = render_device.create_bind_group_layout(
+#[derive(Resource)]
+struct SimulationTextures {
+    textures: Vec<Handle<Image>>,
+}
+
+impl SimulationTextures {
+    const SIMULATION_TEXTURES: [&'static str; 3] = [
+        "particle-sand.png",
+        "particle-sand-square.png",
+        "particle-metal.png",
+    ];
+}
+
+
+impl FromWorld for SimulationTextures {
+    fn from_world(world: &mut World) -> Self {
+        let asset_server = world.resource::<AssetServer>();
+        let textures = SimulationTextures::SIMULATION_TEXTURES.iter()
+            .map(|&name| asset_server.load(name))
+            .collect();
+        Self {
+            textures
+        }
+    }
+}
+
+impl FromWorld for SimulationPipeline {
+    fn from_world(world: &mut World) -> Self {
+        // Load and compile the shader in the background.
+        let asset_server = world.resource::<AssetServer>();
+        let render_device = world.resource::<RenderDevice>();
+
+        let uniforms_bind_group_layout = render_device.create_bind_group_layout(
             Some("particles uniform bind group layout"),
             &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -334,9 +428,29 @@ fn prepare_simulation_buffers(
             }],
         );
 
+        let textures = &world.resource::<SimulationTextures>().textures;
+
+        let textures_bind_group_layout = render_device.create_bind_group_layout(
+            Some("particles textures bind group layout"),
+            // particle textures
+            &BindGroupLayoutEntries::with_indices(
+                ShaderStages::FRAGMENT,
+                (
+                    (
+                        0,
+                        texture_2d(TextureSampleType::Float { filterable: true })
+                            .count(NonZeroU32::new(textures.len() as u32).unwrap()),
+                    ),
+                    (1, sampler(SamplerBindingType::Filtering)),
+                ),
+            )
+            .to_vec(),
+        );
+
         SimulationPipeline {
             shader: asset_server.load("shaders/particles_lite.wgsl"),
-            uniform_bind_group_layout,
+            uniforms_bind_group_layout,
+            textures_bind_group_layout,
         }
     }
 }

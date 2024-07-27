@@ -13,7 +13,7 @@ use crate::multithreaded::{self, UnsafeMultithreadedArray};
 
 use crate::particle::{Particle, METAL, SAND};
 pub const MAX: u32 = 200000;
-pub const PARTICLE_SIZE: f32 = 0.1;
+pub const PARTICLE_SIZE: f32 = 0.5;
 
 pub type Connection = (usize, usize, Link);
 #[derive(Clone)]
