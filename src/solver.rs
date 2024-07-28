@@ -9,9 +9,12 @@ use bevy::math::{vec2, Vec2};
 use rand::Rng;
 use rayon::prelude::*;
 
-use crate::multithreaded::{self, UnsafeMultithreadedArray};
+use crate::{
+    multithreaded::{self, UnsafeMultithreadedArray},
+    particle::{MOTOR, SPIKE},
+};
 
-use crate::particle::{Particle, METAL, SAND};
+use crate::particle::{Kind, Particle, METAL, GROUND};
 pub const MAX: u32 = 200000;
 pub const PARTICLE_SIZE: f32 = 0.5;
 
@@ -65,8 +68,8 @@ impl Solver {
         // populate the grid with indexes of particles
         //let time = Instant::now();
         self.populate_grid(); // TODO: for some reason it's slow in debug mode
-        //let elapsed = Instant::now() - time;
-        //println!("populate time: {}", 8.*elapsed.as_nanos() as f32 / 1000000.);
+                              //let elapsed = Instant::now() - time;
+                              //println!("populate time: {}", 8.*elapsed.as_nanos() as f32 / 1000000.);
 
         self.resolve_collisions();
         self.resolve_connections();
@@ -92,7 +95,7 @@ impl Solver {
 
         let particles = UnsafeMultithreadedArray::new(&mut self.particles); // create unsafe array that can be manipulated in threads
         let grid: &Grid<usize> = self.grid.borrow();
-        
+
         for group in groups {
             group.par_iter().for_each(|range| {
                 for col in range.clone() {
@@ -101,10 +104,18 @@ impl Solver {
                         for &i in grid[c].iter() {
                             for dc in -1..=1 {
                                 for dr in -1..=1 {
-                                    let adj = ((col as isize + dc) as usize, (row as isize + dr) as usize,);
+                                    let adj = (
+                                        (col as isize + dc) as usize,
+                                        (row as isize + dr) as usize,
+                                    );
                                     for &j in grid[adj].iter() {
-                                        if i == j { continue }
-                                        Solver::resolve_collision(&mut particles.clone()[i], &mut particles.clone()[j]);
+                                        if i == j {
+                                            continue;
+                                        }
+                                        Solver::resolve_collision(
+                                            &mut particles.clone()[i],
+                                            &mut particles.clone()[j],
+                                        );
                                     }
                                 }
                             }
@@ -131,9 +142,28 @@ impl Solver {
             let overlap = (p1.radius + p2.radius - v.length());
             let c1 = p2.mass / (p1.mass + p2.mass);
             let c2 = p1.mass / (p1.mass + p2.mass);
-            v = v.normalize() * overlap;
+            v = v.normalize_or_zero() * overlap;
             p1.set_position(p1.pos + v * c1, true);
             p2.set_position(p2.pos - v * c2, true);
+
+            if !p1.kind.none() {
+                Solver::resolve_interaction(p1, p2);
+            }
+            if !p2.kind.none() {
+                Solver::resolve_interaction(p2, p1);
+            }
+        }
+    }
+
+    pub fn resolve_interaction(p1: &mut Particle, p2: &mut Particle) {
+        match p1.kind {
+            //Kind::None => (),
+            Kind::Motor(acc) => {
+                let v = (p2.pos - p1.pos).normalize();
+                let acceleration = v.perp() * acc;
+                p2.accelerate(acceleration);
+            }
+            _ => (),
         }
     }
 
@@ -174,9 +204,9 @@ impl Solver {
                 bounds.0.y = bounds.1.y * 0.8;
                 let pos = rnd_in_bounds(bounds, 2. * PARTICLE_SIZE);
                 if self.particles.len() % 10 == 0 {
-                    self.add_particle(SAND.place(pos));
+                    self.add_particle(GROUND.place(pos));
                 } else {
-                    self.add_particle(SAND.place(pos));
+                    self.add_particle(GROUND.place(pos));
                 }
             }
         }
@@ -213,9 +243,83 @@ impl Solver {
         for i in 0..number {
             let alpha = 2. * PI * (i as f32) / (number as f32);
             let pos = center + vec2(f32::cos(alpha), f32::sin(alpha)) * radius;
-            self.add_particle(SAND.place(pos));
+            self.add_particle(GROUND.place(pos));
             self.add_rib(ind + i, ind + ((i + 1) % number), length);
         }
+    }
+
+    pub fn add_tread(&mut self, pos: Vec2, power: f32, len: usize) {
+        let ind = self.particles.len();
+        let len =  len as isize;
+
+        let mut tread_indexes = vec![];
+        let mut tread_ind = self.particles.len();
+        // lower tread
+        for i in -len..=len {
+            self.add_particle(
+                METAL.place(pos + vec2(2. * PARTICLE_SIZE * i as f32, -f32::sqrt(3.) / 2.)),
+            );
+            tread_indexes.push(tread_ind);
+            tread_ind += 1;
+        }
+        self.add_particle(METAL.place(pos + vec2(2. * PARTICLE_SIZE * (len as f32 + 0.5), 0.)));
+        tread_indexes.push(tread_ind);
+        tread_ind += 1;
+
+        // upper tread
+        for i in (-len..=len).rev() {
+            self.add_particle(
+                METAL.place(pos + vec2(2. * PARTICLE_SIZE * i as f32, f32::sqrt(3.) / 2.)),
+            );
+            tread_indexes.push(tread_ind);
+            tread_ind += 1;
+        }
+        self.add_particle(METAL.place(pos + vec2(-2. * PARTICLE_SIZE * (len as f32 + 0.5), 0.)));
+        tread_ind += 1;
+
+        let total = 2 + 2*(2*len+1) as usize;
+        for i in 0..total {
+            self.add_rib(ind + i, ind + ((i + 1) % total), 2. * PARTICLE_SIZE);
+        }
+
+        // spikes
+        let mut spike_ind = self.particles.len();
+        for i in (-len..=len).step_by(2) {
+            self.add_particle(
+                SPIKE.place(pos + vec2(2. * PARTICLE_SIZE * i as f32, -f32::sqrt(3.) / 2. - SPIKE.radius - METAL.radius)),
+            );
+            self.add_rib(tread_indexes[(i+len) as usize], spike_ind, SPIKE.radius + METAL.radius);
+            spike_ind += 1;
+        }
+
+        for i in (-len..=len).rev().step_by(2) {
+            self.add_particle(
+                SPIKE.place(pos + vec2(2. * PARTICLE_SIZE * i as f32, f32::sqrt(3.) / 2. + SPIKE.radius + METAL.radius)),
+            );
+            self.add_rib(tread_indexes[(-i+len + 2*len+2) as usize], spike_ind, SPIKE.radius + METAL.radius);
+            spike_ind += 1;
+        }
+
+        // motors
+        let ind  = self.particles.len();
+        self.add_particle(
+            MOTOR
+                .place(pos + vec2(-2. * PARTICLE_SIZE * (len as f32 - 0.5), 0.))
+                .enable(Kind::Motor(power)),
+        );
+        self.add_particle(
+            MOTOR
+            .place(pos)
+            .enable(Kind::Motor(power)),
+        );
+        self.add_particle(
+            MOTOR
+                .place(pos + vec2(2. * PARTICLE_SIZE * (len as f32 - 0.5), 0.))
+                .enable(Kind::Motor(power)),
+        );
+        self.add_rib(ind, ind + 1, (2*len - 1) as f32 / 2.);
+        self.add_rib(ind+1, ind + 2, (2*len - 1) as f32 / 2.);
+        self.add_rib(ind, ind + 2, (2*len - 1) as f32);
     }
 
     fn rnd_origin(&self) -> Vec2 {

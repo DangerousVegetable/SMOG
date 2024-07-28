@@ -388,10 +388,12 @@ struct SimulationTextures {
 }
 
 impl SimulationTextures {
-    const SIMULATION_TEXTURES: [&'static str; 3] = [
+    const SIMULATION_TEXTURES: [&'static str; 5] = [
         "particle-sand.png",
-        "particle-sand-square.png",
         "particle-metal.png",
+        "particle-motor.png",
+        "particle-spike.png",
+        "particle-xd.png"
     ];
 }
 

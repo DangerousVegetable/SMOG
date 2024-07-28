@@ -1,18 +1,30 @@
 use bevy::math::{vec2, Vec2};
 
-use crate::solver::{self, Constraint};
+use crate::solver::{self, Constraint, PARTICLE_SIZE};
 
-pub const SAND : Particle = Particle {
-    radius: solver::PARTICLE_SIZE,
+pub const GROUND : Particle = Particle {
     mass: 1.,
     texture: 0,
     ..Particle::null()
 };
 
 pub const METAL : Particle = Particle {
-    radius: solver::PARTICLE_SIZE,
-    mass: 10.,
+    mass: 3.,
     texture: 1,
+    ..Particle::null()
+};
+
+pub const MOTOR : Particle = Particle {
+    mass: 3.,
+    texture: 2,
+    kind: Kind::Motor(0.),
+    ..Particle::null()
+};
+
+pub const SPIKE : Particle = Particle {
+    mass: 0.1,
+    texture: 3,
+    radius: PARTICLE_SIZE/2.,
     ..Particle::null()
 };
 
@@ -24,11 +36,24 @@ pub struct Particle {
     pub pos_old: Vec2,
     pub acc: Vec2,
     pub texture: u32,
+    pub kind: Kind,
 }
 
 impl Default for Particle {
     fn default() -> Self {
         Particle::null()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Kind {
+    None,
+    Motor(f32), // motor with acc
+}
+
+impl Kind {
+    pub fn none(&self) -> bool {
+        *self == Kind::None
     }
 }
 
@@ -44,17 +69,32 @@ impl Particle {
             pos: Vec2::ZERO,
             pos_old: Vec2::ZERO,
             acc: Vec2::ZERO,
+            kind: Kind::None,
         }
     }
 
-    pub fn place(&self, pos: Vec2) -> Self {
+    pub fn place(self, pos: Vec2) -> Self {
         Particle { 
             pos, 
             pos_old: pos, 
-            ..*self}
+            ..self}
     }
 
-    pub fn new(radius: f32, mass: f32, pos: Vec2, texture: u32) -> Self {
+    pub fn enable(self, kind: Kind) -> Self {
+        Particle {
+            kind,
+            ..self
+        }
+    }
+
+    pub fn velocity(self, velocity: Vec2) -> Self {
+        Particle {
+            pos_old: self.pos - velocity,
+            ..self
+        }
+    }
+
+    pub fn new(radius: f32, mass: f32, pos: Vec2, texture: u32, kind: Kind) -> Self {
         Self {
             radius,
             mass,
@@ -62,6 +102,7 @@ impl Particle {
             pos_old: pos,
             acc: Vec2::ZERO,
             texture,
+            kind,
         }
     }
 
@@ -84,6 +125,10 @@ impl Particle {
     pub fn set_position(&mut self, pos: Vec2, keep_acc: bool) {
         self.pos = pos;
         self.acc = if keep_acc {self.acc} else {Vec2::ZERO};
+    }
+
+    pub fn set_speed(&mut self, speed: Vec2) {
+        self.pos_old = self.pos - speed;
     }
 
     pub fn apply_constraint(&mut self, constraint: Constraint) {

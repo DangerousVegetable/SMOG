@@ -2,11 +2,13 @@ use std::time::{Duration, Instant};
 
 use bevy::{
     color::palettes::css::RED,
+    diagnostic::FrameTimeDiagnosticsPlugin,
     input::mouse::{MouseButtonInput, MouseScrollUnit, MouseWheel},
     math::{vec2, vec3, Vec3A},
     prelude::*,
     render::{camera::ScalingMode, extract_component::ExtractComponent, primitives::Aabb},
     sprite::Anchor,
+    window::PrimaryWindow,
 };
 
 mod multithreaded;
@@ -28,7 +30,7 @@ struct ParticleId(usize);
 
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     let solver = Solver::new(
-        solver::Constraint::Box(vec2(-150., -50.), vec2(150., 250.)),
+        solver::Constraint::Box(vec2(-300., -50.), vec2(300., 150.)),
         solver::PARTICLE_SIZE * 2.,
         &[],
         &[],
@@ -47,22 +49,22 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         ..Default::default()
     });
 
-    for i in 0..100 {
-        for j in 0..100 {
-            let pos_x = (tr.x - bl.x) / 150. * i as f32
-                + bl.x
-                + solver::PARTICLE_SIZE
-                + if j % 2 == 0 {
-                    0.
-                } else {
-                    solver::PARTICLE_SIZE
-                };
-            let pos_y = -(tr.y - bl.y) / 150. * j as f32 + tr.y - solver::PARTICLE_SIZE;
-            simulation
-                .0
-                .add_particle(particle::SAND.place(vec2(pos_x, pos_y)));
-        }
-    }
+    //for i in 0..100 {
+    //    for j in 0..100 {
+    //        let pos_x = (tr.x - bl.x) / 150. * i as f32
+    //            + bl.x
+    //            + solver::PARTICLE_SIZE
+    //            + if j % 2 == 0 {
+    //                0.
+    //            } else {
+    //                solver::PARTICLE_SIZE
+    //            };
+    //        let pos_y = -(tr.y - bl.y) / 150. * j as f32 + tr.y - solver::PARTICLE_SIZE;
+    //        simulation
+    //            .0
+    //            .add_particle(particle::SAND.place(vec2(pos_x, pos_y)));
+    //    }
+    //}
 
     commands
         .spawn(SpatialBundle {
@@ -86,10 +88,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     });
 }
 
-fn update_particle_sprites(
-    mut simulation: Query<&mut Simulation>,
-    mut counter: Query<&mut Text>,
-) {
+fn update_particle_sprites(mut simulation: Query<&mut Simulation>, mut counter: Query<&mut Text>) {
     let simulation = simulation.single_mut();
 
     let mut text = counter.single_mut();
@@ -100,7 +99,7 @@ fn update_physics(mut simulation: Query<&mut Simulation>) {
     //let time = Instant::now();
     let mut simulation = simulation.single_mut();
     for _ in 0..SUB_TICKS {
-        let dt = 1./60./ SUB_TICKS as f32;
+        let dt = 1. / 60. / SUB_TICKS as f32;
         simulation.0.solve(dt);
     }
     //println!("elapsed: {}", (Instant::now() - time).as_nanos() as f32 / 1000000.);
@@ -109,11 +108,13 @@ fn update_physics(mut simulation: Query<&mut Simulation>) {
 fn control_system(
     mut evr_scroll: EventReader<MouseWheel>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
     mut simulation: Query<&mut Simulation>,
-    mut query: Query<(&mut OrthographicProjection, &mut Transform), With<Camera>>,
+    mut query: Query<(&Camera, &mut OrthographicProjection, &mut Transform)>,
 ) {
-    let (mut projection, mut camera_transform) = query.single_mut();
+    let (camera, mut projection, mut camera_transform) = query.single_mut();
     let mut simulation = simulation.single_mut();
+    let window = windows.single();
 
     for ev in evr_scroll.read() {
         projection.scale *= f32::powf(1.25, ev.y);
@@ -145,6 +146,32 @@ fn control_system(
             .0
             .change_number(std::cmp::max(0, size as isize - 40 * factor as isize) as usize);
     }
+
+    if let Some(cursor_world_position) = window
+        .cursor_position()
+        .and_then(|cursor| {
+            camera.viewport_to_world(&GlobalTransform::from(camera_transform.clone()), cursor)
+        })
+        .map(|ray| ray.origin.truncate())
+    {
+        if keyboard_input.pressed(KeyCode::Digit1) {
+            let p = particle::GROUND
+                .place(cursor_world_position)
+                .velocity(vec2(0., -0.5));
+            simulation.0.add_particle(p);
+        }
+
+        if keyboard_input.pressed(KeyCode::Digit2) {
+            let p = particle::METAL
+                .place(cursor_world_position)
+                .velocity(vec2(0., -0.5));
+            simulation.0.add_particle(p);
+        }
+
+        if keyboard_input.just_released(KeyCode::Digit3) {
+            simulation.0.add_tread(cursor_world_position, 1000., 7);
+        }
+    }
 }
 
 fn main() {
@@ -153,12 +180,14 @@ fn main() {
     //    .build_global()
     //    .unwrap();
 
-    const PHYSICS_UPDATE_TIME: u64 = 1000000000/64;
+    const PHYSICS_UPDATE_TIME: u64 = 1000000000 / 64;
 
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(RenderSimulationPlugin)
-        .insert_resource(Time::<Fixed>::from_duration(Duration::from_nanos(PHYSICS_UPDATE_TIME)))
+        .insert_resource(Time::<Fixed>::from_duration(Duration::from_nanos(
+            PHYSICS_UPDATE_TIME,
+        )))
         .add_systems(Startup, setup)
         .add_systems(FixedUpdate, update_physics)
         .add_systems(Update, update_particle_sprites)
