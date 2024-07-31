@@ -1,16 +1,10 @@
-[package]
-name = "smog"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+members = ["smog", "packet-tools", "server"]
+resolver = "2"
 
-[dependencies]
-bevy = "0.14.0"
-bytemuck = "1.16.1"
-rand = "0.8.5"
-rayon = "1.10.0"
-wgpu = "0.20.1"
+[workspace.dependencies]
+tokio = { version = "1.39.2", features = ["full"] }
 
-# Enable a small amount of optimization in the dev profile.
 [profile.dev]
 opt-level = 1
 

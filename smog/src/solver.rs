@@ -9,12 +9,14 @@ use bevy::math::{vec2, Vec2};
 use rand::Rng;
 use rayon::prelude::*;
 
-use crate::{
-    multithreaded::{self, UnsafeMultithreadedArray},
+pub mod particle;
+mod multithreaded;
+use self::{
+    multithreaded::{UnsafeMultithreadedArray},
     particle::{MOTOR, SPIKE},
 };
 
-use crate::particle::{Kind, Particle, METAL, GROUND};
+use self::particle::{Kind, Particle, METAL, GROUND};
 pub const MAX: u32 = 200000;
 pub const PARTICLE_SIZE: f32 = 0.5;
 
@@ -210,6 +212,10 @@ impl Solver {
                 }
             }
         }
+    }
+
+    pub fn size(&self) -> usize {
+        self.particles.len()
     }
 
     pub fn add_particle(&mut self, particle: Particle) {

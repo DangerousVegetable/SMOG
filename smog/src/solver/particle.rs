@@ -2,29 +2,29 @@ use bevy::math::{vec2, Vec2};
 
 use crate::solver::{self, Constraint, PARTICLE_SIZE};
 
-pub const GROUND : Particle = Particle {
+pub const GROUND: Particle = Particle {
     mass: 1.,
     texture: 0,
     ..Particle::null()
 };
 
-pub const METAL : Particle = Particle {
+pub const METAL: Particle = Particle {
     mass: 3.,
     texture: 1,
     ..Particle::null()
 };
 
-pub const MOTOR : Particle = Particle {
+pub const MOTOR: Particle = Particle {
     mass: 3.,
     texture: 2,
     kind: Kind::Motor(0.),
     ..Particle::null()
 };
 
-pub const SPIKE : Particle = Particle {
+pub const SPIKE: Particle = Particle {
     mass: 0.1,
     texture: 3,
-    radius: PARTICLE_SIZE/2.,
+    radius: PARTICLE_SIZE / 2.,
     ..Particle::null()
 };
 
@@ -58,8 +58,8 @@ impl Kind {
 }
 
 impl Particle {
-    const GRAVITY : Vec2 = vec2(0., -50.);
-    const SLOWDOWN : f32 = 40.;
+    const GRAVITY: Vec2 = vec2(0., -50.);
+    const SLOWDOWN: f32 = 40.;
 
     pub const fn null() -> Self {
         Self {
@@ -74,17 +74,15 @@ impl Particle {
     }
 
     pub fn place(self, pos: Vec2) -> Self {
-        Particle { 
-            pos, 
-            pos_old: pos, 
-            ..self}
+        Particle {
+            pos,
+            pos_old: pos,
+            ..self
+        }
     }
 
     pub fn enable(self, kind: Kind) -> Self {
-        Particle {
-            kind,
-            ..self
-        }
+        Particle { kind, ..self }
     }
 
     pub fn velocity(self, velocity: Vec2) -> Self {
@@ -108,7 +106,7 @@ impl Particle {
 
     pub fn update(&mut self, dt: f32) {
         let vel = self.pos - self.pos_old;
-        let new_pos = self.pos + vel + (self.acc - vel*Particle::SLOWDOWN)*dt*dt;
+        let new_pos = self.pos + vel + (self.acc - vel * Particle::SLOWDOWN) * dt * dt;
         self.pos_old = self.pos;
         self.pos = new_pos;
         self.acc = Vec2::ZERO;
@@ -124,10 +122,10 @@ impl Particle {
 
     pub fn set_position(&mut self, pos: Vec2, keep_acc: bool) {
         self.pos = pos;
-        self.acc = if keep_acc {self.acc} else {Vec2::ZERO};
+        self.acc = if keep_acc { self.acc } else { Vec2::ZERO };
     }
 
-    pub fn set_speed(&mut self, speed: Vec2) {
+    pub fn set_velocity(&mut self, speed: Vec2) {
         self.pos_old = self.pos - speed;
     }
 
@@ -139,15 +137,22 @@ impl Particle {
                 if (new_x, new_y) != (self.pos.x, self.pos.y) {
                     self.set_position(vec2(new_x, new_y), false);
                 }
-            },
+            }
             Constraint::Box(bl, tr) => {
                 let new_x = self.pos.x.max(bl.x + self.radius).min(tr.x - self.radius);
                 let new_y = self.pos.y.max(bl.y + self.radius).min(tr.y - self.radius);
                 if (new_x, new_y) != (self.pos.x, self.pos.y) {
                     self.set_position(vec2(new_x, new_y), false);
                 }
-            },
+            }
+        }
+    }
+
+    pub fn is_motor(&self) -> bool {
+        if let Kind::Motor(_) = self.kind {
+            true
+        } else {
+            false
         }
     }
 }
-

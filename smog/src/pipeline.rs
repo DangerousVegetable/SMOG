@@ -317,7 +317,7 @@ fn prepare_simulation_buffers(
                 });
 
             let mut particles = RawBufferVec::new(BufferUsages::VERTEX);
-            for p in simulation.0.particles.iter() {
+            for p in simulation.0.solver.particles.iter() {
                 particles.push(particle::Raw::from_particle(p));
             }
 

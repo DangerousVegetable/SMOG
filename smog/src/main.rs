@@ -1,42 +1,36 @@
 use std::time::{Duration, Instant};
 
 use bevy::{
-    color::palettes::css::RED,
-    diagnostic::FrameTimeDiagnosticsPlugin,
-    input::mouse::{MouseButtonInput, MouseScrollUnit, MouseWheel},
-    math::{vec2, vec3, Vec3A},
-    prelude::*,
-    render::{camera::ScalingMode, extract_component::ExtractComponent, primitives::Aabb},
-    sprite::Anchor,
-    window::PrimaryWindow,
+    color::palettes::css::RED, diagnostic::FrameTimeDiagnosticsPlugin, input::mouse::{MouseButtonInput, MouseScrollUnit, MouseWheel}, math::{vec2, vec3, Vec3A}, prelude::*, render::{camera::ScalingMode, extract_component::ExtractComponent, primitives::Aabb}, sprite::Anchor, tasks::futures_lite::future, window::PrimaryWindow
 };
 
-mod multithreaded;
-mod particle;
 mod solver;
+use solver::particle;
+use solver::Solver;
 
 mod pipeline;
-
 use pipeline::RenderSimulationPlugin;
-use solver::Solver;
+
+mod network;
+use network::{client::TcpClient, packets::GamePacket, packets::PACKET_SIZE};
+
+mod controller;
+use controller::Controller;
 
 const SUB_TICKS: usize = 8;
 
 #[derive(Component)]
-struct Simulation(Solver);
+struct Simulation(Controller);
 
-#[derive(Component)]
-struct ParticleId(usize);
-
-fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn setup(mut commands: Commands, client: Res<Client>) {
     let solver = Solver::new(
         solver::Constraint::Box(vec2(-300., -50.), vec2(300., 150.)),
         solver::PARTICLE_SIZE * 2.,
         &[],
         &[],
     );
-    let mut simulation = Simulation(solver);
-    let (bl, tr) = simulation.0.constraint.bounds();
+    let simulation = Simulation(Controller::new(client.0.id, solver));
+    let (bl, tr) = simulation.0.solver.constraint.bounds();
     let projection = OrthographicProjection {
         scale: 1.0,
         scaling_mode: ScalingMode::FixedHorizontal(tr.x - bl.x),
@@ -48,23 +42,6 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         projection: projection.into(),
         ..Default::default()
     });
-
-    //for i in 0..100 {
-    //    for j in 0..100 {
-    //        let pos_x = (tr.x - bl.x) / 150. * i as f32
-    //            + bl.x
-    //            + solver::PARTICLE_SIZE
-    //            + if j % 2 == 0 {
-    //                0.
-    //            } else {
-    //                solver::PARTICLE_SIZE
-    //            };
-    //        let pos_y = -(tr.y - bl.y) / 150. * j as f32 + tr.y - solver::PARTICLE_SIZE;
-    //        simulation
-    //            .0
-    //            .add_particle(particle::SAND.place(vec2(pos_x, pos_y)));
-    //    }
-    //}
 
     commands
         .spawn(SpatialBundle {
@@ -88,27 +65,29 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     });
 }
 
-fn update_particle_sprites(mut simulation: Query<&mut Simulation>, mut counter: Query<&mut Text>) {
+fn udpate_sprites(mut simulation: Query<&mut Simulation>, mut counter: Query<&mut Text>) {
     let simulation = simulation.single_mut();
 
     let mut text = counter.single_mut();
-    text.sections[0].value = format!("{}", simulation.0.particles.len());
+    text.sections[0].value = format!("{}", simulation.0.solver.size());
 }
 
-fn update_physics(mut simulation: Query<&mut Simulation>) {
-    //let time = Instant::now();
+fn update_physics(client: Res<Client>, mut simulation: Query<&mut Simulation>) {
     let mut simulation = simulation.single_mut();
-    for _ in 0..SUB_TICKS {
-        let dt = 1. / 60. / SUB_TICKS as f32;
-        simulation.0.solve(dt);
+    let packets = client.0.get_packets(SUB_TICKS);
+    let dt = 1./60./SUB_TICKS as f32;
+
+    for p in packets {
+        simulation.0.handle_packets(&p);
+        simulation.0.solver.solve(dt);
     }
-    //println!("elapsed: {}", (Instant::now() - time).as_nanos() as f32 / 1000000.);
 }
 
 fn control_system(
     mut evr_scroll: EventReader<MouseWheel>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     windows: Query<&Window, With<PrimaryWindow>>,
+    client: Res<Client>,
     mut simulation: Query<&mut Simulation>,
     mut query: Query<(&Camera, &mut OrthographicProjection, &mut Transform)>,
 ) {
@@ -137,15 +116,15 @@ fn control_system(
         camera_transform.translation.y += 0.1 * factor;
     }
 
-    let size = simulation.0.particles.len();
-    if keyboard_input.pressed(KeyCode::Space) {
-        simulation.0.change_number(size + 10 * factor as usize);
-    }
-    if keyboard_input.pressed(KeyCode::Delete) {
-        simulation
-            .0
-            .change_number(std::cmp::max(0, size as isize - 40 * factor as isize) as usize);
-    }
+    let size = simulation.0.solver.size();
+    //if keyboard_input.pressed(KeyCode::Space) {
+    //    simulation.0.change_number(size + 10 * factor as usize);
+    //}
+    //if keyboard_input.pressed(KeyCode::Delete) {
+    //    simulation
+    //        .0
+    //        .change_number(std::cmp::max(0, size as isize - 40 * factor as isize) as usize);
+    //}
 
     if let Some(cursor_world_position) = window
         .cursor_position()
@@ -155,22 +134,34 @@ fn control_system(
         .map(|ray| ray.origin.truncate())
     {
         if keyboard_input.pressed(KeyCode::Digit1) {
-            let p = particle::GROUND
-                .place(cursor_world_position)
-                .velocity(vec2(0., -0.5));
-            simulation.0.add_particle(p);
+            client.0.send_packet(GamePacket::Spawn(cursor_world_position));
         }
 
-        if keyboard_input.pressed(KeyCode::Digit2) {
-            let p = particle::METAL
-                .place(cursor_world_position)
-                .velocity(vec2(0., -0.5));
-            simulation.0.add_particle(p);
-        }
+        //if keyboard_input.pressed(KeyCode::Digit2) {
+        //    let p = particle::METAL
+        //        .place(cursor_world_position)
+        //        .velocity(vec2(0., -0.5));
+        //    simulation.0.add_particle(p);
+        //}
 
         if keyboard_input.just_released(KeyCode::Digit3) {
-            simulation.0.add_tread(cursor_world_position, 1000., 7);
+            client.0.send_packet(GamePacket::Tank(cursor_world_position));
         }
+    }
+}
+
+#[derive(Resource)]
+struct Client(TcpClient<GamePacket, PACKET_SIZE>);
+
+pub fn establish_connection(mut commands: Commands) {
+    let client = TcpClient::<GamePacket, PACKET_SIZE>::new("127.0.0.1:8080");
+    commands.insert_resource(Client(client));
+}
+
+fn exit_system(mut commands: Commands, events: EventReader<AppExit>) {
+    if !events.is_empty() {
+        info!("Stopping the client");
+        commands.remove_resource::<Client>();
     }
 }
 
@@ -182,15 +173,26 @@ fn main() {
 
     const PHYSICS_UPDATE_TIME: u64 = 1000000000 / 64;
 
+    let args: Vec<_> = std::env::args().collect();
+    if args.len() < 1 {
+        warn!("provide an ip of the server as a command line argument");
+    }
+    
+    let addr = &args[1];
+    let client = TcpClient::<GamePacket, PACKET_SIZE>::new(addr);
+
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(RenderSimulationPlugin)
-        .insert_resource(Time::<Fixed>::from_duration(Duration::from_nanos(
-            PHYSICS_UPDATE_TIME,
-        )))
+        .insert_resource(Client(client))
+        //.insert_resource(Time::<Fixed>::from_duration(Duration::from_nanos(
+        //    PHYSICS_UPDATE_TIME,
+        //)))
+        //.add_systems(PreStartup, establish_connection)
         .add_systems(Startup, setup)
-        .add_systems(FixedUpdate, update_physics)
-        .add_systems(Update, update_particle_sprites)
+        .add_systems(Update, update_physics)
+        .add_systems(Update, udpate_sprites)
         .add_systems(Update, control_system)
+        //.add_systems(Update, exit_system)
         .run();
 }
