@@ -206,9 +206,9 @@ impl Solver {
                 bounds.0.y = bounds.1.y * 0.8;
                 let pos = rnd_in_bounds(bounds, 2. * PARTICLE_SIZE);
                 if self.particles.len() % 10 == 0 {
-                    self.add_particle(GROUND.place(pos));
+                    self.add_particle(GROUND.position(pos));
                 } else {
-                    self.add_particle(GROUND.place(pos));
+                    self.add_particle(GROUND.position(pos));
                 }
             }
         }
@@ -249,7 +249,7 @@ impl Solver {
         for i in 0..number {
             let alpha = 2. * PI * (i as f32) / (number as f32);
             let pos = center + vec2(f32::cos(alpha), f32::sin(alpha)) * radius;
-            self.add_particle(GROUND.place(pos));
+            self.add_particle(GROUND.position(pos));
             self.add_rib(ind + i, ind + ((i + 1) % number), length);
         }
     }
@@ -263,24 +263,24 @@ impl Solver {
         // lower tread
         for i in -len..=len {
             self.add_particle(
-                METAL.place(pos + vec2(2. * PARTICLE_SIZE * i as f32, -f32::sqrt(3.) / 2.)),
+                METAL.position(pos + vec2(2. * PARTICLE_SIZE * i as f32, -f32::sqrt(3.) / 2.)),
             );
             tread_indexes.push(tread_ind);
             tread_ind += 1;
         }
-        self.add_particle(METAL.place(pos + vec2(2. * PARTICLE_SIZE * (len as f32 + 0.5), 0.)));
+        self.add_particle(METAL.position(pos + vec2(2. * PARTICLE_SIZE * (len as f32 + 0.5), 0.)));
         tread_indexes.push(tread_ind);
         tread_ind += 1;
 
         // upper tread
         for i in (-len..=len).rev() {
             self.add_particle(
-                METAL.place(pos + vec2(2. * PARTICLE_SIZE * i as f32, f32::sqrt(3.) / 2.)),
+                METAL.position(pos + vec2(2. * PARTICLE_SIZE * i as f32, f32::sqrt(3.) / 2.)),
             );
             tread_indexes.push(tread_ind);
             tread_ind += 1;
         }
-        self.add_particle(METAL.place(pos + vec2(-2. * PARTICLE_SIZE * (len as f32 + 0.5), 0.)));
+        self.add_particle(METAL.position(pos + vec2(-2. * PARTICLE_SIZE * (len as f32 + 0.5), 0.)));
         tread_ind += 1;
 
         let total = 2 + 2*(2*len+1) as usize;
@@ -292,7 +292,7 @@ impl Solver {
         let mut spike_ind = self.particles.len();
         for i in (-len..=len).step_by(2) {
             self.add_particle(
-                SPIKE.place(pos + vec2(2. * PARTICLE_SIZE * i as f32, -f32::sqrt(3.) / 2. - SPIKE.radius - METAL.radius)),
+                SPIKE.position(pos + vec2(2. * PARTICLE_SIZE * i as f32, -f32::sqrt(3.) / 2. - SPIKE.radius - METAL.radius)),
             );
             self.add_rib(tread_indexes[(i+len) as usize], spike_ind, SPIKE.radius + METAL.radius);
             spike_ind += 1;
@@ -300,7 +300,7 @@ impl Solver {
 
         for i in (-len..=len).rev().step_by(2) {
             self.add_particle(
-                SPIKE.place(pos + vec2(2. * PARTICLE_SIZE * i as f32, f32::sqrt(3.) / 2. + SPIKE.radius + METAL.radius)),
+                SPIKE.position(pos + vec2(2. * PARTICLE_SIZE * i as f32, f32::sqrt(3.) / 2. + SPIKE.radius + METAL.radius)),
             );
             self.add_rib(tread_indexes[(-i+len + 2*len+2) as usize], spike_ind, SPIKE.radius + METAL.radius);
             spike_ind += 1;
@@ -310,18 +310,18 @@ impl Solver {
         let ind  = self.particles.len();
         self.add_particle(
             MOTOR
-                .place(pos + vec2(-2. * PARTICLE_SIZE * (len as f32 - 0.5), 0.))
-                .enable(Kind::Motor(power)),
+                .position(pos + vec2(-2. * PARTICLE_SIZE * (len as f32 - 0.5), 0.))
+                .kind(Kind::Motor(power)),
         );
         self.add_particle(
             MOTOR
-            .place(pos)
-            .enable(Kind::Motor(power)),
+            .position(pos)
+            .kind(Kind::Motor(power)),
         );
         self.add_particle(
             MOTOR
-                .place(pos + vec2(2. * PARTICLE_SIZE * (len as f32 - 0.5), 0.))
-                .enable(Kind::Motor(power)),
+                .position(pos + vec2(2. * PARTICLE_SIZE * (len as f32 - 0.5), 0.))
+                .kind(Kind::Motor(power)),
         );
         self.add_rib(ind, ind + 1, (2*len - 1) as f32 / 2.);
         self.add_rib(ind+1, ind + 2, (2*len - 1) as f32 / 2.);

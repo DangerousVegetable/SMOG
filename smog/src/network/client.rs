@@ -1,6 +1,6 @@
 use std::{sync::Arc};
 
-use tokio::{ net::{TcpStream, ToSocketAddrs}, runtime::Runtime, task::JoinHandle};
+use tokio::{ io::AsyncReadExt, net::{TcpStream, ToSocketAddrs}, runtime::Runtime, task::JoinHandle};
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
 
@@ -39,7 +39,7 @@ where P: Packet<SIZE> + std::fmt::Debug
         });
         let stream = Arc::new(stream);
         let (stop_channel, stop_reader) = unbounded();
-        // sending task
+        // send task
         let stop_sending = stop_reader.clone();
         let (send_channel, r_channel) = unbounded::<P>();
         let send_stream = Arc::clone(&stream);
@@ -55,22 +55,28 @@ where P: Packet<SIZE> + std::fmt::Debug
                 }
             }
         });
-        // listening task
+        // listen task
         let stop_listening = stop_reader.clone();
         let (s_channel, receive_channel) = unbounded::<Vec<IndexedPacket<P, SIZE>>>();
         let receive_stream = Arc::clone(&stream);
         let receive_task = rt.spawn(async move {
-            let mut buf = [0; 1024];
+            let mut buf_start = 0;
+            let mut buf = Vec::from([0; 4096]);
             loop {
                 if !stop_listening.is_empty() {break}
+
                 receive_stream.readable().await.unwrap();
-                match receive_stream.try_read(&mut buf) {
+                match receive_stream.try_read(&mut buf[buf_start..]) {
                     Ok(0) => {
                         break;
                     }
                     Ok(n) => {
-                        let packets: Vec<Vec<IndexedPacket<P, SIZE>>> = packet_tools::deserialize_packets(&buf[..n]).unwrap();
-                        //println!("{packets:?} ");
+                        let (packets, res_len) = packet_tools::deserialize_packets(&mut buf[..buf_start+n]);
+                        buf_start = res_len;
+                        if buf_start > buf.len() / 2 {
+                            buf.extend((0..buf.len()).into_iter().map(|_| 0));
+                        }
+
                         for p in packets {
                             s_channel.send(p).unwrap();
                         }
@@ -118,6 +124,12 @@ where P: Packet<SIZE> + std::fmt::Debug
 
     pub fn send_packet(&self, packet: P) {
         self.send_channel.send(packet).unwrap();
+    }
+
+    pub fn send_packets(&self, packets: &[P]) {
+        for &packet in packets {
+            self.send_packet(packet);
+        }
     }
 
     pub fn is_finished(&self) -> bool {

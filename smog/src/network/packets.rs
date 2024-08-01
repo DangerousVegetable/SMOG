@@ -1,4 +1,4 @@
-use bevy::math::{vec2, Vec2};
+use bevy::{log::error, math::{vec2, Vec2}};
 use packet_tools::{IndexedPacket, Packet};
 pub use server::PACKET_SIZE;
 
@@ -6,6 +6,7 @@ pub type IndexedGamePacket = IndexedPacket<GamePacket, PACKET_SIZE>;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GamePacket {
+    None,
     Spawn(Vec2),
     Motor(u32, f32),
     Tank(Vec2),
@@ -29,7 +30,8 @@ impl Packet<PACKET_SIZE> for GamePacket {
                 bytes.push(2);
                 bytes.extend(&f32::to_be_bytes(pos.x));
                 bytes.extend(&f32::to_be_bytes(pos.y));
-            } 
+            }
+            _ => bytes = vec![0u8; 9]
         }
 
         bytes.try_into().unwrap()
@@ -53,7 +55,10 @@ impl Packet<PACKET_SIZE> for GamePacket {
                 let y = f32::from_be_bytes(value[5..9].try_into().unwrap());
                 Self::Tank(vec2(x, y))
             },
-            _ => panic!("unable to create packet from bytes"),
+            _ => {
+                error!("receive damaged packet from server");
+                Self::None
+            }
         }
     }
 }

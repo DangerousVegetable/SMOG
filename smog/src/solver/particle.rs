@@ -73,7 +73,7 @@ impl Particle {
         }
     }
 
-    pub fn place(self, pos: Vec2) -> Self {
+    pub fn position(self, pos: Vec2) -> Self {
         Particle {
             pos,
             pos_old: pos,
@@ -81,7 +81,7 @@ impl Particle {
         }
     }
 
-    pub fn enable(self, kind: Kind) -> Self {
+    pub fn kind(self, kind: Kind) -> Self {
         Particle { kind, ..self }
     }
 
@@ -127,6 +127,10 @@ impl Particle {
 
     pub fn set_velocity(&mut self, speed: Vec2) {
         self.pos_old = self.pos - speed;
+    }
+
+    pub fn set_kind(&mut self, kind: Kind) {
+        self.kind = kind;
     }
 
     pub fn apply_constraint(&mut self, constraint: Constraint) {

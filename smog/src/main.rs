@@ -5,7 +5,7 @@ use bevy::{
 };
 
 mod solver;
-use solver::particle;
+use solver::{particle, PARTICLE_SIZE};
 use solver::Solver;
 
 mod pipeline;
@@ -95,27 +95,47 @@ fn control_system(
     let mut simulation = simulation.single_mut();
     let window = windows.single();
 
+    // camera
     for ev in evr_scroll.read() {
         projection.scale *= f32::powf(1.25, ev.y);
     }
 
     let mut factor: f32 = 1.;
+    let mut shift_pressed = false;
     if keyboard_input.pressed(KeyCode::ShiftLeft) {
         factor = 5.;
+        shift_pressed = true;
     }
-    if keyboard_input.pressed(KeyCode::KeyA) {
+    if keyboard_input.pressed(KeyCode::ArrowLeft) {
         camera_transform.translation.x -= 0.1 * factor;
     }
-    if keyboard_input.pressed(KeyCode::KeyD) {
+    if keyboard_input.pressed(KeyCode::ArrowRight) {
         camera_transform.translation.x += 0.1 * factor;
     }
-    if keyboard_input.pressed(KeyCode::KeyS) {
+    if keyboard_input.pressed(KeyCode::ArrowDown) {
         camera_transform.translation.y -= 0.1 * factor;
     }
-    if keyboard_input.pressed(KeyCode::KeyW) {
+    if keyboard_input.pressed(KeyCode::ArrowUp) {
         camera_transform.translation.y += 0.1 * factor;
     }
 
+    // player
+    if keyboard_input.pressed(KeyCode::KeyA) {
+        client.0.send_packets(&simulation.0.move_player(1.));
+    }
+    else if keyboard_input.pressed(KeyCode::KeyD) {
+        client.0.send_packets(&simulation.0.move_player(-1.));
+    }
+    else {
+        client.0.send_packets(&simulation.0.move_player(0.));
+    }
+    if keyboard_input.just_released(KeyCode::KeyW) {
+        simulation.0.player.gear_up()
+    }
+    if keyboard_input.just_released(KeyCode::KeyS) {
+        simulation.0.player.gear_down()
+    }
+    
     let size = simulation.0.solver.size();
     //if keyboard_input.pressed(KeyCode::Space) {
     //    simulation.0.change_number(size + 10 * factor as usize);
@@ -134,15 +154,12 @@ fn control_system(
         .map(|ray| ray.origin.truncate())
     {
         if keyboard_input.pressed(KeyCode::Digit1) {
-            client.0.send_packet(GamePacket::Spawn(cursor_world_position));
+            let range = if shift_pressed {-5..=5} else {0..=0};
+            for i in range {
+                let pos = cursor_world_position + 2.*PARTICLE_SIZE * i as f32;
+                client.0.send_packet(GamePacket::Spawn(pos));
+            }
         }
-
-        //if keyboard_input.pressed(KeyCode::Digit2) {
-        //    let p = particle::METAL
-        //        .place(cursor_world_position)
-        //        .velocity(vec2(0., -0.5));
-        //    simulation.0.add_particle(p);
-        //}
 
         if keyboard_input.just_released(KeyCode::Digit3) {
             client.0.send_packet(GamePacket::Tank(cursor_world_position));
@@ -156,13 +173,6 @@ struct Client(TcpClient<GamePacket, PACKET_SIZE>);
 pub fn establish_connection(mut commands: Commands) {
     let client = TcpClient::<GamePacket, PACKET_SIZE>::new("127.0.0.1:8080");
     commands.insert_resource(Client(client));
-}
-
-fn exit_system(mut commands: Commands, events: EventReader<AppExit>) {
-    if !events.is_empty() {
-        info!("Stopping the client");
-        commands.remove_resource::<Client>();
-    }
 }
 
 fn main() {
@@ -193,6 +203,5 @@ fn main() {
         .add_systems(Update, update_physics)
         .add_systems(Update, udpate_sprites)
         .add_systems(Update, control_system)
-        //.add_systems(Update, exit_system)
         .run();
 }

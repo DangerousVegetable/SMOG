@@ -2,145 +2,191 @@ pub const PACKET_SIZE: usize = 9;
 
 pub mod tcp {
     use log::{error, info, trace};
-use packet_tools::{IndexedPacket, TimedQueue};
-use tokio::{self, io::AsyncWriteExt, net::{TcpListener, TcpStream, ToSocketAddrs}, time::sleep};
-use std::{sync::{atomic::AtomicBool, Arc, Mutex}, time::Duration};
+    use packet_tools::{IndexedPacket, TimedQueue};
+    use std::{
+        sync::{atomic::AtomicBool, Arc, Mutex},
+        time::Duration,
+    };
+    use tokio::{
+        self,
+        io::AsyncWriteExt,
+        net::{TcpListener, TcpStream, ToSocketAddrs},
+        task::JoinHandle,
+        time::sleep,
+    };
 
-type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+    type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-pub struct TcpSyncServer {
-    pub listener: Arc<TcpListener>,
-    slot_duration: Duration,
-    slots_stored: usize,
-    streams: Arc<Mutex<Vec<Arc<TcpStream>>>>,
-    listen_for_connections: Arc<AtomicBool>,
-    is_running: Arc<AtomicBool>,
-}
+    pub struct TcpSyncServer {
+        pub listener: Arc<TcpListener>,
+        slot_duration: Duration,
+        slots_stored: usize,
+        connections_task: Option<JoinHandle<()>>,
+        listen_tasks: Option<Vec<JoinHandle<()>>>,
+        send_task: Option<JoinHandle<()>>,
+        streams: Arc<Mutex<Vec<Arc<TcpStream>>>>,
+        accept_connections: Arc<AtomicBool>,
+        is_running: Arc<AtomicBool>,
+    }
 
-impl TcpSyncServer {
-    pub async fn new<A>(addr: A, slot_duration: Duration, slots_stored: usize) -> Result<Self> 
-    where A: ToSocketAddrs
-    {
-        let listener = TcpListener::bind(addr).await?;
-        Ok(
-            Self {
+    impl TcpSyncServer {
+        pub async fn new<A>(addr: A, slot_duration: Duration, slots_stored: usize) -> Result<Self>
+        where
+            A: ToSocketAddrs,
+        {
+            let listener = TcpListener::bind(addr).await?;
+            Ok(Self {
                 listener: Arc::new(listener),
                 slot_duration,
                 slots_stored,
+                connections_task: None,
+                listen_tasks: None,
+                send_task: None,
                 streams: Arc::new(Mutex::new(vec![])),
-                listen_for_connections: Arc::new(AtomicBool::new(true)),
+                accept_connections: Arc::new(AtomicBool::new(true)),
                 is_running: Arc::new(AtomicBool::new(false)),
-            }
-        )
-    }
+            })
+        }
 
-    pub fn listen_for_connections(&self) {
-        let accept_connections = self.listen_for_connections.clone();
-        let listener = self.listener.clone();
-        let streams = self.streams.clone();
-        
-        // listening for connections
-        tokio::spawn(async move {
-            info!("listening for new connections on {:?}", listener.local_addr().unwrap());
-            let mut new_streams = Vec::new();
-            while accept_connections.load(std::sync::atomic::Ordering::Relaxed) {
-                tokio::select! {
-                    result = listener.accept() => {
-                        if let Ok((mut stream, _)) = result {
-                            info!("accepted connection: {:?}", stream.peer_addr().unwrap());
-                            stream.write(&[new_streams.len() as u8]).await.unwrap();
-                            new_streams.push(Arc::new(stream));
+        pub fn accept_connections(&mut self) {
+            let accept_connections = self.accept_connections.clone();
+            let listener = self.listener.clone();
+            let streams = self.streams.clone();
+
+            // listening for connections
+            let connection_task = tokio::spawn(async move {
+                info!(
+                    "listening for new connections on {:?}",
+                    listener.local_addr().unwrap()
+                );
+                while accept_connections.load(std::sync::atomic::Ordering::Relaxed) {
+                    tokio::select! {
+                        result = listener.accept() => {
+                            if let Ok((mut stream, _)) = result {
+                                info!("accepted connection: {:?}", stream.peer_addr().unwrap());
+                                let id = streams.lock().unwrap().len() as u8;
+                                stream.write(&[id]).await.unwrap();
+                                streams.lock().unwrap().push(Arc::new(stream));
+                            }
+                        },
+                        _ = sleep(Duration::from_millis(100)) => {
+                            continue
                         }
-                    },
-                    _ = sleep(Duration::from_millis(100)) => {
-                        continue
                     }
                 }
-            }
-            
-            *streams.lock().unwrap() = new_streams;
-            info!("stop listening for new connections");
-        });
-    }
+                info!("stop listening for new connections");
+            });
 
-    pub fn run<const PACKET_SIZE: usize>(&self) {
-        self.stop_listening_for_new_connections();
-        self.is_running.store(true, std::sync::atomic::Ordering::Relaxed);
-        
-        let packet_queue = Arc::new(Mutex::new(TimedQueue::<IndexedPacket<[u8; PACKET_SIZE], PACKET_SIZE>>::new(self.slot_duration)));
-        
-        {
-            info!("start listening to incoming packets");
-            // listening tasks
-            let streams = self.streams.lock().unwrap();
-            for (id, stream) in streams.iter().enumerate() {
+            self.connections_task = Some(connection_task);
+        }
+
+        pub fn run<const PACKET_SIZE: usize>(&mut self) {
+            self.decline_connections();
+            self.is_running
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+
+            let packet_queue = Arc::new(Mutex::new(TimedQueue::<
+                IndexedPacket<[u8; PACKET_SIZE], PACKET_SIZE>,
+            >::new(self.slot_duration)));
+
+            {
+                let mut listen_tasks = Vec::new();
+                info!("start listening to incoming packets");
+                // listening tasks
+                let streams = self.streams.lock().unwrap();
+                for (id, stream) in streams.iter().enumerate() {
+                    let is_running = self.is_running.clone();
+                    let stream = stream.clone();
+                    let queue = packet_queue.clone();
+                    let listen_task = tokio::spawn(async move {
+                        loop {
+                            if !is_running.load(std::sync::atomic::Ordering::Relaxed) {
+                                info!("closing connection with {:?}", stream.peer_addr().unwrap());
+                                break;
+                            }
+                            let _ = stream.readable().await;
+                            let mut packet = [0; PACKET_SIZE];
+                            match stream.try_read(&mut packet) {
+                                Ok(0) => break,
+                                Ok(n) => {
+                                    trace!(
+                                        "received {n} bytes from {:?}",
+                                        stream.peer_addr().unwrap()
+                                    );
+                                    let packet = IndexedPacket::new(id as u8, packet);
+                                    queue.lock().unwrap().push(packet);
+                                }
+                                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
+                                _ => break
+                            }
+                        }
+                    });
+                    listen_tasks.push(listen_task);
+                }
+                self.listen_tasks = Some(listen_tasks);
+            }
+
+            {
+                info!("start broadcasting");
+                // broadcasting task
+                let streams: Vec<_> = self
+                    .streams
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .map(|s| Arc::clone(s))
+                    .collect();
                 let is_running = self.is_running.clone();
-                let stream = stream.clone();
-                let queue = packet_queue.clone();
-                tokio::spawn(async move {
+                let slots_stored = self.slots_stored;
+                let slot_duration = self.slot_duration;
+                let broadcast_task = tokio::spawn(async move {
                     loop {
                         if !is_running.load(std::sync::atomic::Ordering::Relaxed) {
-                            info!("closing connection with {:?}", stream.peer_addr().unwrap());
-                            break;
+                            info!("stop broadcasting");
+                            return;
                         }
-                        stream.readable().await.unwrap();
-                        let mut packet = [0; PACKET_SIZE];
-                        if let Ok(num) = stream.try_read(&mut packet)
-                        {
-                            trace!("received {num} bytes from {:?}", stream.peer_addr().unwrap());
-                            let packet = IndexedPacket::new(id as u8, packet);
-                            queue.lock().unwrap().push(packet);
+
+                        let data = packet_queue.lock().unwrap().take(slots_stored);
+                        let bytes = packet_tools::serialize_packets(&data);
+
+                        for stream in streams.iter() {
+                            'try_send: loop {
+                                let _ = stream.writable().await;
+                                match stream.try_write(&bytes) {
+                                    Ok(_) => {
+                                        trace!("sending: {data:?} to {:?}", stream.peer_addr());
+                                        break 'try_send;
+                                    }
+                                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                                        continue;
+                                    }
+                                    _ => break 'try_send,
+                                }
+                            }
                         }
+                        std::thread::sleep(slot_duration * slots_stored as u32);
                     }
                 });
+                self.send_task = Some(broadcast_task);
             }
         }
 
-        {
-            info!("start broadcasting");
-            // broadcasting task
-            let streams: Vec<_> = self.streams.lock().unwrap().iter()
-                .map(|s| Arc::clone(s))
-                .collect();
-            let is_running = self.is_running.clone();
-            let slots_stored = self.slots_stored;
-            let slot_duration = self.slot_duration;
-            tokio::spawn(async move {
-                let mut cycle = 1;
-                loop {
-                    if !is_running.load(std::sync::atomic::Ordering::Relaxed) {
-                        info!("stop broadcasting");
-                        return;
-                    }
+        pub fn decline_connections(&mut self) {
+            self.accept_connections
+                .store(false, std::sync::atomic::Ordering::Relaxed);
+            self.connections_task.take().map(|c| c.abort());
+        }
 
-                    if cycle % slots_stored == 0 {
-                        let data = packet_queue.lock().unwrap().take(slots_stored);
-                        let bytes = packet_tools::serialize_packets(&data);
-                        
-                        for stream in streams.iter() {
-                            stream.writable().await.unwrap();
-                            if let Err(e) = stream.try_write(&bytes) {
-                                error!("{e} occured while sending to {:?}", stream.peer_addr());
-                            }
-                            else {
-                                trace!("sending: {data:?} to {:?}", stream.peer_addr());
-                            }
-                        }
-                    }
-                    cycle += 1;
-                    std::thread::sleep(slot_duration);
-                    //sleep(slot_duration).await;
-                }
+        pub fn stop(&mut self) {
+            self.decline_connections();
+            self.is_running
+                .store(false, std::sync::atomic::Ordering::Relaxed);
+            self.listen_tasks.take().map(|tasks| {
+                tasks.into_iter().for_each(|t| {
+                    t.abort();
+                })
             });
+            self.send_task.take().map(|c| c.abort());
         }
     }
-
-    pub fn stop_listening_for_new_connections(&self) {
-        self.listen_for_connections.store(false, std::sync::atomic::Ordering::Relaxed);
-    }
-    pub fn stop(&self) {
-        self.stop_listening_for_new_connections();
-        self.is_running.store(false, std::sync::atomic::Ordering::Relaxed);
-    }
-}
 }

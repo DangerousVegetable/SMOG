@@ -53,22 +53,33 @@ pub fn serialize_packets<P: Packet<SIZE>, const SIZE: usize>(
 }
 
 pub fn deserialize_packets<P: Packet<SIZE>, const SIZE: usize>(
-    bytes: &[u8],
-) -> Result<Vec<Vec<IndexedPacket<P, SIZE>>>, Box<dyn std::error::Error>> {
+    bytes: &mut [u8],
+) -> (Vec<Vec<IndexedPacket<P, SIZE>>>, usize) {
     let mut result = Vec::new();
     let mut ind = 0;
+
+    let mut res_len = 0;
     while ind < bytes.len() {
         let len = bytes[ind] as usize;
         ind += 1;
-        let mut packets = Vec::new();
-        for packet_bytes in bytes[ind..].chunks(SIZE+1).take(len) {
-            packets.push(IndexedPacket::from_bytes(packet_bytes));
-        }
-        result.push(packets);
 
-        ind += (SIZE+1) * len;
+        if ind + len * (SIZE+1) <= bytes.len() {
+            let mut packets = Vec::new();
+            for packet_bytes in bytes[ind..].chunks(SIZE+1).take(len) {
+                packets.push(IndexedPacket::from_bytes(packet_bytes));
+            }
+            result.push(packets);
+
+            ind += (SIZE+1) * len;
+        }
+        else {
+            ind -= 1;
+            bytes.copy_within(ind.., 0);
+            res_len = bytes.len() - ind;
+            break;
+        }
     }
-    Ok(result)
+    (result, res_len)
 }
 
 pub struct TimedQueue<P> {
