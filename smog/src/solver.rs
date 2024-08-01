@@ -61,8 +61,8 @@ impl Solver {
     fn get_cell(&self, pos: Vec2) -> (usize, usize) {
         let bounds = self.constraint.bounds().0;
         (
-            ((pos.x - bounds.x) / self.cell_size).max(0.) as usize + 1,
-            ((pos.y - bounds.y) / self.cell_size).max(0.) as usize + 1,
+            (((pos.x - bounds.x) / self.cell_size).max(0.) as usize + 1).min(self.grid.width - 1),
+            (((pos.y - bounds.y) / self.cell_size).max(0.) as usize + 1).min(self.grid.height - 1),
         )
     }
 

@@ -1,7 +1,7 @@
 pub const PACKET_SIZE: usize = 9;
 
 pub mod tcp {
-    use log::{error, info, trace};
+    use log::{error, info, trace, warn};
     use packet_tools::{IndexedPacket, TimedQueue};
     use std::{
         sync::{atomic::AtomicBool, Arc, Mutex},
@@ -107,7 +107,10 @@ pub mod tcp {
                             let _ = stream.readable().await;
                             let mut packet = [0; PACKET_SIZE];
                             match stream.try_read(&mut packet) {
-                                Ok(0) => break,
+                                Ok(0) => {
+                                    warn!("client {} seems to have disconnected. Closing connection", stream.peer_addr().unwrap());
+                                    break
+                                }
                                 Ok(n) => {
                                     trace!(
                                         "received {n} bytes from {:?}",
@@ -117,7 +120,10 @@ pub mod tcp {
                                     queue.lock().unwrap().push(packet);
                                 }
                                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
-                                _ => break
+                                Err(e) => {
+                                    warn!("{e} occured with {}. Closing connection", stream.peer_addr().unwrap());
+                                    break
+                                }
                             }
                         }
                     });

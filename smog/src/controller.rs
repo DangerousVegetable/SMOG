@@ -66,7 +66,7 @@ impl Controller {
                 self.solver.add_particle(GROUND.position(pos).velocity(vec2(0., -0.5)));
             }
             GamePacket::Tank(pos) => {
-                self.solver.add_tread(pos, 0., 5);
+                self.solver.add_tread(pos, 0., 7);
                 if packet.id == self.player.id {
                     let last_ind = self.solver.size() - 1;
                     self.player.motors = vec![last_ind-2, last_ind-1, last_ind];
