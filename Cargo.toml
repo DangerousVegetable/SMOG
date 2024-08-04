@@ -1,9 +1,10 @@
 [workspace]
-members = ["smog", "packet-tools", "server"]
+members = ["smog", "packet-tools", "server", "map-editor", "solver"]
 resolver = "2"
 
 [workspace.dependencies]
 tokio = { version = "1.39.2", features = ["full"] }
+bevy = "0.14.0"
 
 [profile.dev]
 opt-level = 1

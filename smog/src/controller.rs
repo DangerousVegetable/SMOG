@@ -1,6 +1,8 @@
 use bevy::math::{vec2, Vec2};
 
-use crate::{network::packets::{GamePacket, IndexedGamePacket}, solver::{particle::{Kind, Particle, GROUND}, Solver}};
+use crate::{network::packets::{GamePacket, IndexedGamePacket}};
+
+use solver::{particle::{Kind, Particle, GROUND}, Solver};
 
 #[derive(Default, Clone)]
 pub struct Player {
@@ -36,39 +38,37 @@ impl Player {
 
 #[derive(Clone)]
 pub struct Controller {
-    pub solver: Solver,
     pub player: Player,
 }
 
 impl Controller {
-    pub fn new(id: u8, solver: Solver) -> Self {
+    pub fn new(id: u8) -> Self {
         Self {
-            solver,
             player: Player::new(id)
         }
     }
 
-    pub fn handle_packets(&mut self, packets: &Vec<IndexedGamePacket>) {
+    pub fn handle_packets(&mut self, solver: &mut Solver, packets: &Vec<IndexedGamePacket>) {
         for packet in packets {
-            self.handle_packet(packet);
+            self.handle_packet(solver, packet);
         }
     }
 
-    pub fn handle_packet(&mut self, packet: &IndexedGamePacket) {
+    pub fn handle_packet(&mut self, solver: &mut Solver, packet: &IndexedGamePacket) {
         match packet.contents {
             GamePacket::Motor(ind, acc) => {
                 let ind = ind as usize;
-                if self.solver.particles.get(ind).map_or(false, |p| p.is_motor()) {
-                    self.solver.particles[ind].set_kind(Kind::Motor(acc));
+                if solver.particles.get(ind).map_or(false, |p| p.is_motor()) {
+                    solver.particles[ind].set_kind(Kind::Motor(acc));
                 }
             }
             GamePacket::Spawn(pos) => {
-                self.solver.add_particle(GROUND.position(pos).velocity(vec2(0., -0.5)));
+                solver.add_particle(GROUND.position(pos).velocity(vec2(0., -0.5)));
             }
             GamePacket::Tank(pos) => {
-                self.solver.add_tread(pos, 0., 7);
+                solver.add_tread(pos, 0., 7);
                 if packet.id == self.player.id {
-                    let last_ind = self.solver.size() - 1;
+                    let last_ind = solver.size() - 1;
                     self.player.motors = vec![last_ind-2, last_ind-1, last_ind];
                 }   
             }

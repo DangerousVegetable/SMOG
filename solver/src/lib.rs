@@ -2,7 +2,6 @@ use std::{
     borrow::Borrow,
     f32::consts::PI,
     ops::{Index, IndexMut, Range},
-    time::Instant,
 };
 
 use bevy::math::{vec2, Vec2};
@@ -12,13 +11,13 @@ use rayon::prelude::*;
 pub mod particle;
 mod multithreaded;
 use self::{
-    multithreaded::{UnsafeMultithreadedArray},
+    multithreaded::UnsafeMultithreadedArray,
     particle::{MOTOR, SPIKE},
 };
 
 use self::particle::{Kind, Particle, METAL, GROUND};
 pub const MAX: u32 = 200000;
-pub const PARTICLE_SIZE: f32 = 0.5;
+pub const PARTICLE_RADIUS: f32 = 0.5;
 
 pub type Connection = (usize, usize, Link);
 #[derive(Clone)]
@@ -27,16 +26,16 @@ pub struct Solver {
     pub particles: Vec<Particle>,
     pub connections: Vec<Connection>,
     pub cell_size: f32,
-    pub grid: Grid<usize>,
+    grid: Grid<usize>,
 }
 
 impl Solver {
     pub fn new(
         constraint: Constraint,
-        cell_size: f32,
         particles: &[Particle],
         connections: &[Connection],
     ) -> Self {
+        let cell_size = 2.*PARTICLE_RADIUS;
         let bounds = constraint.bounds();
         let width: usize = ((bounds.1.x - bounds.0.x) / cell_size) as usize + 3;
         let height: usize = ((bounds.1.y - bounds.0.y) / cell_size) as usize + 3;
@@ -130,9 +129,9 @@ impl Solver {
 
     fn resolve_connections(&mut self) {
         self.connections
-            .retain(|&(i, j, _)| i < self.particles.len() && j < self.particles.len());
-        for &(i, j, link) in self.connections.iter() {
-            let (i, j) = (std::cmp::min(i, j), std::cmp::max(i, j));
+            .retain(|&(i, j, link)| i < self.particles.len() && j < self.particles.len() && link.durability() > 0.);
+        for (i, j, link) in self.connections.iter_mut() {
+            let (i, j) = (usize::min(*i, *j), usize::max(*i, *j));
             let (head, tail) = self.particles.split_at_mut(i + 1);
             Solver::resolve_connection(&mut head[i], &mut tail[j - i - 1], link);
         }
@@ -141,7 +140,7 @@ impl Solver {
     pub fn resolve_collision(p1: &mut Particle, p2: &mut Particle) {
         let mut v = p1.pos - p2.pos;
         if v.length() < p1.radius + p2.radius {
-            let overlap = (p1.radius + p2.radius - v.length());
+            let overlap = p1.radius + p2.radius - v.length();
             let c1 = p2.mass / (p1.mass + p2.mass);
             let c2 = p1.mass / (p1.mass + p2.mass);
             v = v.normalize_or_zero() * overlap;
@@ -164,25 +163,33 @@ impl Solver {
                 let v = (p2.pos - p1.pos).normalize();
                 let acceleration = v.perp() * acc;
                 p2.accelerate(acceleration);
+                p1.accelerate(-acceleration/2.);
             }
             _ => (),
         }
     }
 
-    pub fn resolve_connection(p1: &mut Particle, p2: &mut Particle, link: Link) {
+    pub fn resolve_connection(p1: &mut Particle, p2: &mut Particle, link: &mut Link) {
         match link {
             Link::Force(force) => {
                 let v = (p2.pos - p1.pos).normalize_or_zero();
-                p1.accelerate(v * force);
-                p2.accelerate(-v * force);
+                p1.accelerate(v * *force);
+                p2.accelerate(-v * *force);
             }
-            Link::Rigid(length) => {
+            Link::Rigid{length, durability, elasticity} => {
                 let mut v = p1.pos - p2.pos;
-                let overlap = (length - v.length()) / 2.;
+                let overlap = (*length - v.length()) / 2.;
                 v = overlap * v.normalize();
                 p1.set_position(p1.pos + v, true);
                 p2.set_position(p2.pos - v, true);
+
+                let max_length = *elasticity*(*length);
+                if 2.*overlap.abs() > max_length {
+                    //println!("{durability}");
+                    *durability -= 2.*overlap.abs()/max_length - 1.; // substract the amount of percent max_length was exceeded
+                }
             }
+            _ => ()
         }
     }
 
@@ -204,7 +211,7 @@ impl Solver {
                 //else {self.add_particle(SAND.place(self.rnd_origin()));}
                 let mut bounds = self.constraint.bounds();
                 bounds.0.y = bounds.1.y * 0.8;
-                let pos = rnd_in_bounds(bounds, 2. * PARTICLE_SIZE);
+                let pos = rnd_in_bounds(bounds, 2. * PARTICLE_RADIUS);
                 if self.particles.len() % 10 == 0 {
                     self.add_particle(GROUND.position(pos));
                 } else {
@@ -223,7 +230,7 @@ impl Solver {
     }
 
     pub fn add_rib(&mut self, i: usize, j: usize, length: f32) {
-        self.connections.push((i, j, Link::Rigid(length)))
+        self.connections.push((i, j, Link::Rigid{length, durability: 1., elasticity: 0.2}))
     }
 
     pub fn add_spring(&mut self, i: usize, j: usize, force: f32) {
@@ -263,36 +270,36 @@ impl Solver {
         // lower tread
         for i in -len..=len {
             self.add_particle(
-                METAL.position(pos + vec2(2. * PARTICLE_SIZE * i as f32, -f32::sqrt(3.) / 2.)),
+                METAL.position(pos + vec2(2. * PARTICLE_RADIUS * i as f32, -f32::sqrt(3.) / 2.)),
             );
             tread_indexes.push(tread_ind);
             tread_ind += 1;
         }
-        self.add_particle(METAL.position(pos + vec2(2. * PARTICLE_SIZE * (len as f32 + 0.5), 0.)));
+        self.add_particle(METAL.position(pos + vec2(2. * PARTICLE_RADIUS * (len as f32 + 0.5), 0.)));
         tread_indexes.push(tread_ind);
         tread_ind += 1;
 
         // upper tread
         for i in (-len..=len).rev() {
             self.add_particle(
-                METAL.position(pos + vec2(2. * PARTICLE_SIZE * i as f32, f32::sqrt(3.) / 2.)),
+                METAL.position(pos + vec2(2. * PARTICLE_RADIUS * i as f32, f32::sqrt(3.) / 2.)),
             );
             tread_indexes.push(tread_ind);
             tread_ind += 1;
         }
-        self.add_particle(METAL.position(pos + vec2(-2. * PARTICLE_SIZE * (len as f32 + 0.5), 0.)));
+        self.add_particle(METAL.position(pos + vec2(-2. * PARTICLE_RADIUS * (len as f32 + 0.5), 0.)));
         tread_ind += 1;
 
         let total = 2 + 2*(2*len+1) as usize;
         for i in 0..total {
-            self.add_rib(ind + i, ind + ((i + 1) % total), 2. * PARTICLE_SIZE);
+            self.add_rib(ind + i, ind + ((i + 1) % total), 2. * PARTICLE_RADIUS);
         }
 
         // spikes
         let mut spike_ind = self.particles.len();
         for i in (-len..=len).step_by(2) {
             self.add_particle(
-                SPIKE.position(pos + vec2(2. * PARTICLE_SIZE * i as f32, -f32::sqrt(3.) / 2. - SPIKE.radius - METAL.radius)),
+                SPIKE.position(pos + vec2(2. * PARTICLE_RADIUS * i as f32, -f32::sqrt(3.) / 2. - SPIKE.radius - METAL.radius)),
             );
             self.add_rib(tread_indexes[(i+len) as usize], spike_ind, SPIKE.radius + METAL.radius);
             spike_ind += 1;
@@ -300,7 +307,7 @@ impl Solver {
 
         for i in (-len..=len).rev().step_by(2) {
             self.add_particle(
-                SPIKE.position(pos + vec2(2. * PARTICLE_SIZE * i as f32, f32::sqrt(3.) / 2. + SPIKE.radius + METAL.radius)),
+                SPIKE.position(pos + vec2(2. * PARTICLE_RADIUS * i as f32, f32::sqrt(3.) / 2. + SPIKE.radius + METAL.radius)),
             );
             self.add_rib(tread_indexes[(-i+len + 2*len+2) as usize], spike_ind, SPIKE.radius + METAL.radius);
             spike_ind += 1;
@@ -310,7 +317,7 @@ impl Solver {
         let ind  = self.particles.len();
         self.add_particle(
             MOTOR
-                .position(pos + vec2(-2. * PARTICLE_SIZE * (len as f32 - 0.5), 0.))
+                .position(pos + vec2(-2. * PARTICLE_RADIUS * (len as f32 - 0.5), 0.))
                 .kind(Kind::Motor(power)),
         );
         self.add_particle(
@@ -320,7 +327,7 @@ impl Solver {
         );
         self.add_particle(
             MOTOR
-                .position(pos + vec2(2. * PARTICLE_SIZE * (len as f32 - 0.5), 0.))
+                .position(pos + vec2(2. * PARTICLE_RADIUS * (len as f32 - 0.5), 0.))
                 .kind(Kind::Motor(power)),
         );
         self.add_rib(ind, ind + 1, (2*len - 1) as f32 / 2.);
@@ -330,7 +337,7 @@ impl Solver {
 
     fn rnd_origin(&self) -> Vec2 {
         let bounds = self.constraint.bounds();
-        rnd_in_bounds(bounds, 2. * PARTICLE_SIZE)
+        rnd_in_bounds(bounds, 2. * PARTICLE_RADIUS)
     }
 }
 
@@ -344,7 +351,29 @@ pub fn rnd_in_bounds(bounds: (Vec2, Vec2), margin: f32) -> Vec2 {
 #[derive(Clone, Copy)]
 pub enum Link {
     Force(f32), // force
-    Rigid(f32), // constant length
+    Rigid {
+        length: f32,
+        durability: f32,
+        elasticity: f32,
+    },
+}
+
+impl Link {
+    pub fn with_length(&self, length: f32) -> Self {
+        match self {
+            Self::Force(_) => *self,
+            Self::Rigid { length: _, durability, elasticity } => {
+                Self::Rigid{length, durability: *durability, elasticity: *elasticity}
+            }
+        }
+    }
+
+    pub fn durability(&self) -> f32 {
+        match self {
+            Self::Rigid{length: _, durability, elasticity: _} => *durability,
+            _ => 1.
+        }
+    }
 }
 
 const CELL_MAX: usize = 4;
@@ -439,15 +468,12 @@ where
 #[derive(Clone, Copy)]
 pub enum Constraint {
     Box(Vec2, Vec2), // Rectangle, bottom-left and top-right corners
-    #[deprecated]
-    Cup(Vec2, Vec2), // U-shape, bottom-left and top-right corners
 }
 
 impl Constraint {
     pub const fn bounds(&self) -> (Vec2, Vec2) {
         match self {
             &Constraint::Box(bl, tr) => (bl, tr),
-            &Constraint::Cup(bl, tr) => (bl, tr),
         }
     }
 }

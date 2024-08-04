@@ -56,14 +56,14 @@ pub mod tcp {
             // listening for connections
             let connection_task = tokio::spawn(async move {
                 info!(
-                    "listening for new connections on {:?}",
+                    "Listening for new connections on {:?}",
                     listener.local_addr().unwrap()
                 );
                 while accept_connections.load(std::sync::atomic::Ordering::Relaxed) {
                     tokio::select! {
                         result = listener.accept() => {
                             if let Ok((mut stream, _)) = result {
-                                info!("accepted connection: {:?}", stream.peer_addr().unwrap());
+                                info!("Accepted connection: {:?}", stream.peer_addr().unwrap());
                                 let id = streams.lock().unwrap().len() as u8;
                                 stream.write(&[id]).await.unwrap();
                                 streams.lock().unwrap().push(Arc::new(stream));
@@ -74,7 +74,7 @@ pub mod tcp {
                         }
                     }
                 }
-                info!("stop listening for new connections");
+                info!("Stop listening for new connections");
             });
 
             self.connections_task = Some(connection_task);
@@ -91,7 +91,7 @@ pub mod tcp {
 
             {
                 let mut listen_tasks = Vec::new();
-                info!("start listening to incoming packets");
+                info!("Start listening to incoming packets");
                 // listening tasks
                 let streams = self.streams.lock().unwrap();
                 for (id, stream) in streams.iter().enumerate() {
@@ -101,19 +101,19 @@ pub mod tcp {
                     let listen_task = tokio::spawn(async move {
                         loop {
                             if !is_running.load(std::sync::atomic::Ordering::Relaxed) {
-                                info!("closing connection with {:?}", stream.peer_addr().unwrap());
+                                info!("Closing connection with {:?}", stream.peer_addr().unwrap());
                                 break;
                             }
                             let _ = stream.readable().await;
                             let mut packet = [0; PACKET_SIZE];
                             match stream.try_read(&mut packet) {
                                 Ok(0) => {
-                                    warn!("client {} seems to have disconnected. Closing connection", stream.peer_addr().unwrap());
+                                    warn!("Client {} seems to have disconnected. Closing connection", stream.peer_addr().unwrap());
                                     break
                                 }
                                 Ok(n) => {
                                     trace!(
-                                        "received {n} bytes from {:?}",
+                                        "Received {n} bytes from {:?}",
                                         stream.peer_addr().unwrap()
                                     );
                                     let packet = IndexedPacket::new(id as u8, packet);
@@ -133,7 +133,7 @@ pub mod tcp {
             }
 
             {
-                info!("start broadcasting");
+                info!("Start broadcasting");
                 // broadcasting task
                 let streams: Vec<_> = self
                     .streams
@@ -148,7 +148,7 @@ pub mod tcp {
                 let broadcast_task = tokio::spawn(async move {
                     loop {
                         if !is_running.load(std::sync::atomic::Ordering::Relaxed) {
-                            info!("stop broadcasting");
+                            info!("Stop broadcasting");
                             return;
                         }
 
@@ -160,7 +160,7 @@ pub mod tcp {
                                 let _ = stream.writable().await;
                                 match stream.try_write(&bytes) {
                                     Ok(_) => {
-                                        trace!("sending: {data:?} to {:?}", stream.peer_addr());
+                                        trace!("Sending: {data:?} to {:?}", stream.peer_addr());
                                         break 'try_send;
                                     }
                                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -195,4 +195,11 @@ pub mod tcp {
             self.send_task.take().map(|c| c.abort());
         }
     }
+    
+    impl Drop for TcpSyncServer {
+        fn drop(&mut self) {
+            self.stop();
+        }
+    }
 }
+

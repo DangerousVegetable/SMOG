@@ -4,12 +4,10 @@ use bevy::{
     color::palettes::css::RED, diagnostic::FrameTimeDiagnosticsPlugin, input::mouse::{MouseButtonInput, MouseScrollUnit, MouseWheel}, math::{vec2, vec3, Vec3A}, prelude::*, render::{camera::ScalingMode, extract_component::ExtractComponent, primitives::Aabb}, sprite::Anchor, tasks::futures_lite::future, window::PrimaryWindow
 };
 
-mod solver;
-use solver::{particle, PARTICLE_SIZE};
+use solver::{particle, PARTICLE_RADIUS};
 use solver::Solver;
 
-mod pipeline;
-use pipeline::RenderSimulationPlugin;
+use smog::render::{RenderSimulationPlugin, RenderedSimulation, SimulationCamera};
 
 mod network;
 use network::{client::TcpClient, packets::GamePacket, packets::PACKET_SIZE};
@@ -20,17 +18,16 @@ use controller::Controller;
 const SUB_TICKS: usize = 8;
 
 #[derive(Component)]
-struct Simulation(Controller);
+struct GameController(Controller);
 
 fn setup(mut commands: Commands, client: Res<Client>) {
     let solver = Solver::new(
         solver::Constraint::Box(vec2(-300., -50.), vec2(300., 150.)),
-        solver::PARTICLE_SIZE * 2.,
         &[],
         &[],
     );
-    let simulation = Simulation(Controller::new(client.0.id, solver));
-    let (bl, tr) = simulation.0.solver.constraint.bounds();
+    let simulation = RenderedSimulation(solver);
+    let (bl, tr) = simulation.0.constraint.bounds();
     let projection = OrthographicProjection {
         scale: 1.0,
         scaling_mode: ScalingMode::FixedHorizontal(tr.x - bl.x),
@@ -41,7 +38,8 @@ fn setup(mut commands: Commands, client: Res<Client>) {
     commands.spawn(Camera2dBundle {
         projection: projection.into(),
         ..Default::default()
-    });
+    })
+    .insert(SimulationCamera);
 
     commands
         .spawn(SpatialBundle {
@@ -49,7 +47,8 @@ fn setup(mut commands: Commands, client: Res<Client>) {
             transform: Transform::IDENTITY,
             ..default()
         })
-        .insert(simulation);
+        .insert(simulation)
+        .insert(GameController(Controller::new(client.0.id)));
 
     // Spawn the counter
     let text_style = TextStyle {
@@ -65,21 +64,21 @@ fn setup(mut commands: Commands, client: Res<Client>) {
     });
 }
 
-fn udpate_sprites(mut simulation: Query<&mut Simulation>, mut counter: Query<&mut Text>) {
+fn udpate_sprites(mut simulation: Query<&mut RenderedSimulation>, mut counter: Query<&mut Text>) {
     let simulation = simulation.single_mut();
 
     let mut text = counter.single_mut();
-    text.sections[0].value = format!("{}", simulation.0.solver.size());
+    text.sections[0].value = format!("{}", simulation.0.size());
 }
 
-fn update_physics(client: Res<Client>, mut simulation: Query<&mut Simulation>) {
-    let mut simulation = simulation.single_mut();
+fn update_physics(client: Res<Client>, mut simulation: Query<(&mut RenderedSimulation, &mut GameController)>) {
+    let (mut simulation, mut controller) = simulation.single_mut();
     let packets = client.0.get_packets(SUB_TICKS);
     let dt = 1./60./SUB_TICKS as f32;
 
     for p in packets {
-        simulation.0.handle_packets(&p);
-        simulation.0.solver.solve(dt);
+        controller.0.handle_packets(&mut simulation.0, &p);
+        simulation.0.solve(dt);
     }
 }
 
@@ -88,11 +87,11 @@ fn control_system(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     client: Res<Client>,
-    mut simulation: Query<&mut Simulation>,
-    mut query: Query<(&Camera, &mut OrthographicProjection, &mut Transform)>,
+    mut simulation: Query<(&mut RenderedSimulation, &mut GameController)>,
+    mut camera: Query<(&Camera, &mut OrthographicProjection, &mut Transform)>,
 ) {
-    let (camera, mut projection, mut camera_transform) = query.single_mut();
-    let mut simulation = simulation.single_mut();
+    let (camera, mut projection, mut camera_transform) = camera.single_mut();
+    let (mut simulation, mut controller) = simulation.single_mut();
     let window = windows.single();
 
     // camera
@@ -121,30 +120,20 @@ fn control_system(
 
     // player
     if keyboard_input.pressed(KeyCode::KeyA) {
-        client.0.send_packets(&simulation.0.move_player(1.));
+        client.0.send_packets(&controller.0.move_player(1.));
     }
     else if keyboard_input.pressed(KeyCode::KeyD) {
-        client.0.send_packets(&simulation.0.move_player(-1.));
+        client.0.send_packets(&controller.0.move_player(-1.));
     }
     else {
-        client.0.send_packets(&simulation.0.move_player(0.));
+        client.0.send_packets(&controller.0.move_player(0.));
     }
     if keyboard_input.just_released(KeyCode::KeyW) {
-        simulation.0.player.gear_up()
+        controller.0.player.gear_up()
     }
     if keyboard_input.just_released(KeyCode::KeyS) {
-        simulation.0.player.gear_down()
+        controller.0.player.gear_down()
     }
-    
-    let size = simulation.0.solver.size();
-    //if keyboard_input.pressed(KeyCode::Space) {
-    //    simulation.0.change_number(size + 10 * factor as usize);
-    //}
-    //if keyboard_input.pressed(KeyCode::Delete) {
-    //    simulation
-    //        .0
-    //        .change_number(std::cmp::max(0, size as isize - 40 * factor as isize) as usize);
-    //}
 
     if let Some(cursor_world_position) = window
         .cursor_position()
@@ -156,7 +145,7 @@ fn control_system(
         if keyboard_input.pressed(KeyCode::Digit1) {
             let range = if shift_pressed {-5..=5} else {0..=0};
             for i in range {
-                let pos = cursor_world_position + 2.*PARTICLE_SIZE * i as f32;
+                let pos = cursor_world_position + 2.*PARTICLE_RADIUS * i as f32;
                 client.0.send_packet(GamePacket::Spawn(pos));
             }
         }

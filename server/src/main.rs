@@ -12,14 +12,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args: Vec<_> = std::env::args().collect();
     if args.len() < 1 {
-        warn!("provide an ip of the server as a command line argument");
+        error!("Provide an ip of the server as a command line argument");
+        return Ok(())
     }
 
     let addr = &args[1];
 
     let mut server = TcpSyncServer::new(
         addr, 
-        Duration::from_nanos(2300000), // 2.3 ms per PHYSICS TICK ~ 55 fps client
+        Duration::from_nanos(2300000), // 2.3ms per PHYSICS TICK ~ 55 fps client
         16
     ).await?;
     
@@ -42,7 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    std::thread::sleep(Duration::from_secs(2));
+    std::thread::sleep(Duration::from_secs(1));
     Ok(())
 }
 

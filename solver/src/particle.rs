@@ -1,6 +1,6 @@
-use bevy::math::{vec2, Vec2};
+use bevy::math::{vec2, Vec2, Vec4, VectorSpace};
 
-use crate::solver::{self, Constraint, PARTICLE_SIZE};
+use crate::{Constraint, PARTICLE_RADIUS};
 
 pub const GROUND: Particle = Particle {
     mass: 1.,
@@ -24,7 +24,7 @@ pub const MOTOR: Particle = Particle {
 pub const SPIKE: Particle = Particle {
     mass: 0.1,
     texture: 3,
-    radius: PARTICLE_SIZE / 2.,
+    radius: PARTICLE_RADIUS / 2.,
     ..Particle::null()
 };
 
@@ -37,6 +37,7 @@ pub struct Particle {
     pub acc: Vec2,
     pub texture: u32,
     pub kind: Kind,
+    pub color: Vec4,
 }
 
 impl Default for Particle {
@@ -59,17 +60,18 @@ impl Kind {
 
 impl Particle {
     const GRAVITY: Vec2 = vec2(0., -50.);
-    const SLOWDOWN: f32 = 40.;
+    const SLOWDOWN: f32 = 80.;
 
     pub const fn null() -> Self {
         Self {
-            radius: solver::PARTICLE_SIZE,
+            radius: crate::PARTICLE_RADIUS,
             mass: 1.,
             texture: 0,
             pos: Vec2::ZERO,
             pos_old: Vec2::ZERO,
             acc: Vec2::ZERO,
             kind: Kind::None,
+            color: Vec4::ZERO,
         }
     }
 
@@ -85,6 +87,10 @@ impl Particle {
         Particle { kind, ..self }
     }
 
+    pub fn color(self, color: Vec4) -> Self {
+        Particle { color, ..self }
+    }
+
     pub fn velocity(self, velocity: Vec2) -> Self {
         Particle {
             pos_old: self.pos - velocity,
@@ -92,7 +98,7 @@ impl Particle {
         }
     }
 
-    pub fn new(radius: f32, mass: f32, pos: Vec2, texture: u32, kind: Kind) -> Self {
+    pub fn new(radius: f32, mass: f32, pos: Vec2, texture: u32, kind: Kind, color: Vec4) -> Self {
         Self {
             radius,
             mass,
@@ -101,6 +107,7 @@ impl Particle {
             acc: Vec2::ZERO,
             texture,
             kind,
+            color
         }
     }
 
@@ -135,13 +142,6 @@ impl Particle {
 
     pub fn apply_constraint(&mut self, constraint: Constraint) {
         match constraint {
-            Constraint::Cup(bl, tr) => {
-                let new_x = self.pos.x.max(bl.x + self.radius).min(tr.x - self.radius);
-                let new_y = self.pos.y.max(bl.y + self.radius);
-                if (new_x, new_y) != (self.pos.x, self.pos.y) {
-                    self.set_position(vec2(new_x, new_y), false);
-                }
-            }
             Constraint::Box(bl, tr) => {
                 let new_x = self.pos.x.max(bl.x + self.radius).min(tr.x - self.radius);
                 let new_y = self.pos.y.max(bl.y + self.radius).min(tr.y - self.radius);

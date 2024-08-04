@@ -1,10 +1,10 @@
 
 
-use bevy::{math::{vec2, Vec2}, render::render_resource::{BufferAddress, VertexAttribute, VertexBufferLayout, VertexStepMode}};
+use bevy::{math::{vec2, Vec2, Vec4}, render::render_resource::{BufferAddress, VertexAttribute, VertexBufferLayout, VertexStepMode}};
 use wgpu::vertex_attr_array;
 
 use super::vertex::Vertex;
-use crate::particle::Particle;
+use solver::particle::Particle;
 
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable, Debug)]
 #[repr(C)]
@@ -12,16 +12,19 @@ pub struct Raw {
     size: f32,
     pos: Vec2,
     texture: u32, 
+    color: Vec4,
 }
 
 impl Raw {
-    const ATTRIBS: [VertexAttribute; 3] = vertex_attr_array![
+    const ATTRIBS: [VertexAttribute; 4] = vertex_attr_array![
         // size
         2 => Float32,
         // position
         3 => Float32x2,
         // texture index
-        4 => Uint32
+        4 => Uint32,
+        // color
+        5 => Float32x4,
     ];
 
     pub fn desc() -> VertexBufferLayout {
@@ -38,7 +41,8 @@ impl Raw {
         Raw {
             size: particle.radius,
             pos: particle.pos,
-            texture: particle.texture
+            texture: particle.texture,
+            color: particle.color,
         }
     }
 
