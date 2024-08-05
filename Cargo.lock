@@ -1022,15 +1022,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bevy_simple_text_input"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96ff52beee8948f31238ede22c9a2fc61c0cbd3ee9755c5f7fef35243a8ff146"
-dependencies = [
- "bevy",
-]
-
-[[package]]
 name = "bevy_sprite"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2690,11 +2681,11 @@ name = "map-editor"
 version = "0.1.0"
 dependencies = [
  "bevy",
- "bevy_simple_text_input",
  "image",
  "rand",
  "smog",
  "solver",
+ "text_io",
 ]
 
 [[package]]
@@ -4031,6 +4022,12 @@ checksum = "06794f8f6c5c898b3275aebefa6b8a1cb24cd2c6c79397ab15774837a0bc5755"
 dependencies = [
  "winapi-util",
 ]
+
+[[package]]
+name = "text_io"
+version = "0.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5f0c8eb2ad70c12a6a69508f499b3051c924f4b1cfeae85bfad96e6bc5bba46"
 
 [[package]]
 name = "thiserror"

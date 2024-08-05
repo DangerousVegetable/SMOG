@@ -115,10 +115,13 @@ pub mod constructor {
         }
     }
     pub struct Layer {
+        constraint: Constraint,
         grid: TriangularGrid<Option<(usize, Rgba<u8>)>>,
         pub base_particle: Particle,
         pub link: Option<Link>,
         pub strength: f32,
+        pub particles: Option<Vec<Particle>>,
+        pub connections: Option<Vec<Connection>>,
     }
 
     impl Layer {
@@ -130,10 +133,13 @@ pub mod constructor {
         ) -> Self {
             let grid = TriangularGrid::new(constraint);
             Self {
+                constraint,
                 grid,
                 base_particle,
                 link,
                 strength,
+                particles: None,
+                connections: None,
             }
         }
 
@@ -212,12 +218,30 @@ pub mod constructor {
 
             connections
         }
+
+        pub fn bake(&mut self) {
+            self.particles = Some(self.get_particles());
+            self.connections = Some(self.get_connections());
+        }
+
+        pub fn solver(&mut self) -> Solver {
+            if self.particles.is_none() || self.connections.is_none() {
+                self.bake();
+            }
+            let particles = self.particles.as_ref().unwrap();
+            let connections = self.connections.as_ref().unwrap();
+            Solver::new(self.constraint, particles, connections)
+        }
     }
     pub struct MapConstructor {
         pub name: String,
         pub constraint: Constraint,
         pub layers: Vec<Layer>,
+        pub spawns: Vec<Vec<Vec2>>,
         pub textures: Vec<Handle<Image>>,
+
+        pub particles: Option<Vec<Particle>>,
+        pub connections: Option<Vec<Connection>>,
     }
 
     impl MapConstructor {
@@ -226,7 +250,10 @@ pub mod constructor {
                 name,
                 constraint,
                 layers: vec![],
+                spawns: vec![],
                 textures: vec![],
+                particles: None,
+                connections: None
             }
         }
 
@@ -235,22 +262,32 @@ pub mod constructor {
                 .push(Layer::new(self.constraint, Particle::default(), None, 1.))
         }
 
-        pub fn solver(&self) -> Solver {
+        pub fn bake_layers(&mut self) {
             let mut particles = vec![];
             let mut connections = vec![];
             let mut offset = 0;
-            for layer in self.layers.iter() {
-                particles.append(&mut layer.get_particles());
-                let mut layer_connections = layer.get_connections();
-                for (i, j, _) in layer_connections.iter_mut() {
-                    *i += offset;
-                    *j += offset;
+            for layer in self.layers.iter_mut() {
+                layer.bake();
+                particles.append(&mut layer.particles.as_mut().unwrap().clone());
+
+                let layer_connections = layer.connections.as_ref().unwrap();
+                for (i, j, link) in layer_connections.iter() {
+                    connections.push((*i + offset, *j + offset, *link));
                 }
-                connections.append(&mut layer_connections);
+
                 offset = particles.len();
             }
+            self.particles = Some(particles);
+            self.connections = Some(connections);
+        }
 
-            Solver::new(self.constraint, &particles, &connections)
+        pub fn solver(&mut self) -> Solver {
+            if self.particles.is_none() || self.connections.is_none() {
+                self.bake_layers();
+            }
+            let particles = self.particles.as_ref().unwrap();
+            let connections = self.connections.as_ref().unwrap();
+            Solver::new(self.constraint, particles, connections)
         }
     }
 }

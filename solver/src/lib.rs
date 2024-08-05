@@ -67,10 +67,7 @@ impl Solver {
 
     pub fn solve(&mut self, dt: f32) {
         // populate the grid with indexes of particles
-        //let time = Instant::now();
         self.populate_grid(); // TODO: for some reason it's slow in debug mode
-                              //let elapsed = Instant::now() - time;
-                              //println!("populate time: {}", 8.*elapsed.as_nanos() as f32 / 1000000.);
 
         self.resolve_collisions();
         self.resolve_connections();
@@ -183,7 +180,7 @@ impl Solver {
                 p1.set_position(p1.pos + v, true);
                 p2.set_position(p2.pos - v, true);
 
-                let max_length = *elasticity*(*length);
+                let max_length = *elasticity*(*length)/100.;
                 if 2.*overlap.abs() > max_length {
                     //println!("{durability}");
                     *durability -= 2.*overlap.abs()/max_length - 1.; // substract the amount of percent max_length was exceeded
@@ -368,9 +365,34 @@ impl Link {
         }
     }
 
+    pub fn with_durabliity(&self, durability: f32) -> Self {
+        match self {
+            Self::Force(_) => *self,
+            Self::Rigid { length, durability: _, elasticity } => {
+                Self::Rigid{length: *length, durability, elasticity: *elasticity}
+            }
+        }
+    }
+
+    pub fn with_elasticity(&self, elasticity: f32) -> Self {
+        match self {
+            Self::Force(_) => *self,
+            Self::Rigid { length, durability, elasticity:_ } => {
+                Self::Rigid{length: *length, durability: *durability, elasticity}
+            }
+        }
+    }
+
     pub fn durability(&self) -> f32 {
         match self {
             Self::Rigid{length: _, durability, elasticity: _} => *durability,
+            _ => 1.
+        }
+    }
+
+    pub fn elasticity(&self) -> f32 {
+        match self {
+            Self::Rigid{length: _, durability: _, elasticity} => *elasticity,
             _ => 1.
         }
     }

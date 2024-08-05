@@ -5,8 +5,8 @@ edition = "2021"
 
 [dependencies]
 bevy = "0.14.0"
-bevy_simple_text_input = "0.8.0"
 image = "0.25.2"
 rand = "0.8.5"
 smog = {path = "../smog"}
 solver = {path = "../solver"}
+text_io = "0.1.12"
