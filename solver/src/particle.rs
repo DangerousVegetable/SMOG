@@ -72,7 +72,7 @@ impl Particle {
             pos_old: Vec2::ZERO,
             acc: Vec2::ZERO,
             kind: Kind::None,
-            color: Vec4::ZERO,
+            color: Vec4::ONE,
         }
     }
 

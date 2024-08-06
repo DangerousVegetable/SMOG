@@ -12,7 +12,8 @@ use bevy::prelude::*;
 use bevy::render::camera::ScalingMode;
 use bevy::render::render_asset::RenderAssets;
 use bevy::render::texture::GpuImage;
-use bevy::tasks::IoTaskPool;
+use bevy::tasks::futures_lite::future;
+use bevy::tasks::{block_on, poll_once, IoTaskPool, Task};
 use bevy::window::PrimaryWindow;
 use bevy::{
     self,
@@ -24,6 +25,7 @@ use bevy::{
 
 use image::RgbaImage;
 use map_editor::map::{Map, Spawn};
+use map_editor::serde::SerdeMapConstructor;
 use text_io::{read, try_read};
 
 use map_editor::constructor::{self, MapConstructor};
@@ -264,6 +266,9 @@ fn update_ui_system(mut query: Query<(&mut Text, &TextMarker)>, constructor: Que
 #[derive(Component)]
 struct Constructor(MapConstructor, usize);
 
+#[derive(Component)]
+struct ConstructorUpdate(Task<MapConstructor>);
+
 fn setup(mut commands: Commands, textures: Res<SimulationTextures>) {
     // create constructor entity
     let mut constructor = MapConstructor::new(
@@ -351,7 +356,9 @@ fn spawn_sprites_system(
     let spawn_image = asset_server.load("spawn.png");
     let constructor = constructor.single();
     let mut last_sprite = None;
-    for (i, (entity, mut transform, mut spawn_ind, mut sprite)) in query.iter_mut().sort::<&SpawnIndex>().enumerate() {
+    for (i, (entity, mut transform, mut spawn_ind, mut sprite)) in
+        query.iter_mut().sort::<&SpawnIndex>().enumerate()
+    {
         if i >= constructor.0.spawns.len() {
             commands.entity(entity).despawn();
             continue;
@@ -362,21 +369,23 @@ fn spawn_sprites_system(
         sprite.color = Color::hsl(360. * spawn.team as f32 / 4., 0.95, 0.7);
         last_sprite = Some(i);
     }
-    let start = last_sprite.map_or(0, |ind| ind+1);
+    let start = last_sprite.map_or(0, |ind| ind + 1);
     for i in start..constructor.0.spawns.len() {
-        commands.spawn(SpriteBundle {
-            sprite: Sprite {
-                custom_size: Some(vec2(10., 10.,)),
+        commands
+            .spawn(SpriteBundle {
+                sprite: Sprite {
+                    custom_size: Some(vec2(10., 10.)),
+                    ..default()
+                },
+                texture: spawn_image.clone(),
                 ..default()
-            },
-            texture: spawn_image.clone(),
-            ..default()
-        })
-        .insert(SpawnIndex(i));
+            })
+            .insert(SpawnIndex(i));
     }
 }
 
 fn drag_and_drop_system(
+    mut commands: Commands,
     mut events: EventReader<FileDragAndDrop>,
     asset_server: Res<AssetServer>,
     state: Res<State<AppState>>,
@@ -391,6 +400,19 @@ fn drag_and_drop_system(
             return;
         };
 
+        if path_buf.extension().unwrap() == "smoge" {
+            let base_path = path_buf.clone();
+            let asset_server = asset_server.clone();
+            let task = IoTaskPool::get().spawn(async move {
+                let bytes = fs::read(&base_path)
+                    .expect(&format!("Unable to read contents of {base_path:?}"));
+                let constructor = SerdeMapConstructor::deserialize(&bytes);
+                constructor.to_constructor(base_path, &asset_server)
+            });
+            commands.spawn(ConstructorUpdate(task));
+            return;
+        }
+
         match state.get() {
             AppState::Main | AppState::PendingImage(None) => {
                 let img: Handle<Image> = asset_server.load(AssetPath::from_path(path_buf));
@@ -403,6 +425,41 @@ fn drag_and_drop_system(
                 next_state.set(AppState::PendingTexture(Some(img)));
             }
             _ => (),
+        }
+    }
+}
+
+fn handle_constructor_update(
+    mut commands: Commands,
+    mut next_state: ResMut<NextState<AppState>>,
+    mut constructor: Query<&mut Constructor>,
+    mut update_task: Query<(Entity, &mut ConstructorUpdate)>,
+    column: Query<Entity, With<TextureColumn>>,
+    buttons: Query<(Entity, &ButtonAction), With<Button>>,
+) {
+    let mut constructor = constructor.single_mut();
+    let column = column.single();
+    for (entity, mut task) in &mut update_task {
+        if let Some(map_constructor) = block_on(poll_once(&mut task.0)) {
+            // update constructor
+            constructor.0 = map_constructor;
+            commands.entity(entity).despawn();
+
+            // remove old texture buttons
+            for (entity, action) in &buttons {
+                match action {
+                    ButtonAction::RemoveTexture(_, _) => {
+                        commands.entity(entity).despawn_recursive()
+                    }
+                    _ => (),
+                }
+            }
+
+            // adding new textures
+            next_state.set(AppState::PendingTextures(
+                constructor.0.textures[SimulationTextures::SIMULATION_TEXTURES.len()..].to_vec(),
+            ));
+            info!("Map loaded!");
         }
     }
 }
@@ -451,37 +508,56 @@ fn check_assets_system(
             });
             info!("Texture added!");
 
-            let style = Style {
-                width: Val::Px(160.0),
-                height: Val::Px(30.0),
-                border: UiRect::all(Val::Px(2.)),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                ..default()
-            };
-
-            let button = ButtonBundle {
-                style: style.clone(),
-                border_color: BorderColor(Color::WHITE),
-                background_color: BackgroundColor(Color::BLACK),
-                border_radius: BorderRadius {
-                    top_left: Val::Px(10.),
-                    top_right: Val::Px(10.),
-                    bottom_left: Val::Px(10.),
-                    bottom_right: Val::Px(10.),
-                },
-                image: UiImage::new(handle.clone()),
-                ..default()
-            };
-
-            let texture_button = commands.spawn(button).id();
-            commands
-                .entity(texture_button)
-                .insert(ButtonAction::RemoveTexture(texture_button, handle.clone()));
-            commands.entity(column).push_children(&[texture_button]);
+            add_texture_button(&mut commands, handle, column);
+        }
+        AppState::PendingTextures(textures) => {
+            if textures
+                .iter()
+                .all(|handle| image_assets.get(handle).is_some())
+            {
+                next_state.set(AppState::Main);
+                commands.insert_resource(SimulationTextures {
+                    textures: constructor.0.textures.clone(),
+                });
+                for handle in textures {
+                    add_texture_button(&mut commands, handle, column);
+                }
+                info!("Textures added!");
+            }
         }
         _ => (),
     }
+}
+
+fn add_texture_button(commands: &mut Commands, handle: &Handle<Image>, column: Entity) {
+    let style = Style {
+        width: Val::Px(160.0),
+        height: Val::Px(30.0),
+        border: UiRect::all(Val::Px(2.)),
+        justify_content: JustifyContent::Center,
+        align_items: AlignItems::Center,
+        ..default()
+    };
+
+    let button = ButtonBundle {
+        style: style.clone(),
+        border_color: BorderColor(Color::WHITE),
+        background_color: BackgroundColor(Color::BLACK),
+        border_radius: BorderRadius {
+            top_left: Val::Px(10.),
+            top_right: Val::Px(10.),
+            bottom_left: Val::Px(10.),
+            bottom_right: Val::Px(10.),
+        },
+        image: UiImage::new(handle.clone()),
+        ..default()
+    };
+
+    let texture_button = commands.spawn(button).id();
+    commands
+        .entity(texture_button)
+        .insert(ButtonAction::RemoveTexture(texture_button, handle.clone()));
+    commands.entity(column).push_children(&[texture_button]);
 }
 
 fn control_system(
@@ -605,7 +681,7 @@ fn control_system(
                 info!("All connections removed!");
             }
         }
-        
+
         if keyboard.just_pressed(KeyCode::AltLeft) {
             layer.bake();
         }
@@ -692,7 +768,7 @@ fn control_system(
         }
     }
 
-    if keyboard.just_pressed(KeyCode::ControlLeft) && keyboard.just_pressed(KeyCode::KeyS) {
+    if keyboard.pressed(KeyCode::ControlLeft) && keyboard.just_pressed(KeyCode::KeyS) {
         print!("name (without spaces) << ");
         let name: String = read!();
         constructor.0.name = name;
@@ -704,34 +780,42 @@ fn save_textures(map: &Map, textures: Vec<Image>) {
     let texture_paths = map.texture_paths("assets/maps");
     for (i, texture) in textures.into_iter().enumerate() {
         let image: RgbaImage = texture.try_into_dynamic().unwrap().to_rgba8();
-        image.save(&texture_paths[i])
+        image
+            .save(&texture_paths[i])
             .expect("Error while saving texture");
     }
 }
 
 fn save_map(constructor: &mut MapConstructor, image_assets: &Assets<Image>) {
+    let serde_constructor = SerdeMapConstructor::from_constructor(&constructor);
     let map = constructor.map();
-    let textures: Vec<Image> = constructor.textures.iter()
-        .map(|handle| {
-            image_assets.get(handle).unwrap().clone()
-        })
+    let textures: Vec<Image> = constructor
+        .textures
+        .iter()
+        .map(|handle| image_assets.get(handle).unwrap().clone())
         .collect();
 
     IoTaskPool::get()
         .spawn(async move {
             let mut base_path = PathBuf::from("assets/maps");
             base_path.push(&map.name);
-            fs::create_dir_all(&base_path)
-                .expect("Error while creating map directory");
+            fs::create_dir_all(&base_path).expect("Error while creating map directory");
 
             save_textures(&map, textures);
             info!("Textures saved!");
 
             base_path.push("map.smog");
-            File::create(base_path)
+            File::create(&base_path)
                 .and_then(|mut file| file.write(&map.serialize()))
                 .expect("Error while writing map to file");
             info!("Map \"{}\" saved!", map.name);
+
+            base_path.pop();
+            base_path.push("map.smoge");
+            File::create(&base_path)
+                .and_then(|mut file| file.write(&serde_constructor.serialize()))
+                .expect("Error while writing map layout to file");
+            info!("Map layout \"{}\" saved!", map.name);
         })
         .detach();
 }
@@ -741,6 +825,7 @@ enum AppState {
     Main,
     PendingTexture(Option<Handle<Image>>),
     PendingImage(Option<Handle<Image>>),
+    PendingTextures(Vec<Handle<Image>>),
 }
 
 fn main() {
@@ -758,6 +843,7 @@ fn main() {
         .add_systems(Startup, setup)
         .add_systems(Startup, setup_ui)
         .add_systems(Update, drag_and_drop_system)
+        .add_systems(Update, handle_constructor_update)
         .add_systems(Update, check_assets_system)
         .add_systems(Update, update_ui_system)
         .add_systems(Update, spawn_sprites_system)

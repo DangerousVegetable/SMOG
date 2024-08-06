@@ -227,7 +227,7 @@ impl Solver {
     }
 
     pub fn add_rib(&mut self, i: usize, j: usize, length: f32) {
-        self.connections.push((i, j, Link::Rigid{length, durability: 1., elasticity: 0.2}))
+        self.connections.push((i, j, Link::Rigid{length, durability: 1., elasticity: 10.}))
     }
 
     pub fn add_spring(&mut self, i: usize, j: usize, force: f32) {
@@ -345,7 +345,7 @@ pub fn rnd_in_bounds(bounds: (Vec2, Vec2), margin: f32) -> Vec2 {
     )
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum Link {
     Force(f32), // force
     Rigid {
@@ -487,7 +487,7 @@ where
     }
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum Constraint {
     Box(Vec2, Vec2), // Rectangle, bottom-left and top-right corners
 }

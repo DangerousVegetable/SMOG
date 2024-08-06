@@ -10,7 +10,7 @@ Use this app to create maps for SMOG.
 ### Layer Controls
 - **Drag and Drop** an image: Create a new layer
 - **LEFT ALT** + **BACKSPACE**: Make the layer non-solid
-- **LEFT ALT** + **M** / **T** / **S** / **D** / **E**: Adjust layer settings (use command to input parameters)
+- **LEFT ALT** + **M** / **T** / **S** / **D** / **E**: Adjust layer settings (use console to input parameters)
 - **ARROW LEFT** / **ARROW RIGHT**: Switch between layers
 - **ARROW DOWN**: Preview the current layer
 - **LEFT ALT**: Bake the layer (update particles based on new settings)

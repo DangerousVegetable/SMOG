@@ -64,7 +64,7 @@ fn setup(mut commands: Commands, client: Res<Client>) {
     });
 }
 
-fn udpate_sprites(mut simulation: Query<&mut RenderedSimulation>, mut counter: Query<&mut Text>) {
+fn update_sprites(mut simulation: Query<&mut RenderedSimulation>, mut counter: Query<&mut Text>) {
     let simulation = simulation.single_mut();
 
     let mut text = counter.single_mut();
@@ -190,7 +190,7 @@ fn main() {
         //.add_systems(PreStartup, establish_connection)
         .add_systems(Startup, setup)
         .add_systems(Update, update_physics)
-        .add_systems(Update, udpate_sprites)
+        .add_systems(Update, update_sprites)
         .add_systems(Update, control_system)
         .run();
 }

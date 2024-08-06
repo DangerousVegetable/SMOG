@@ -9,12 +9,14 @@ pub mod constructor {
     };
     use image::{Rgba, RgbaImage};
     use rand::Rng;
+    use serde::{Deserialize, Serialize};
     use solver::{particle::Particle, Connection, Constraint, Link, Solver, PARTICLE_RADIUS};
 
     use crate::map::{Map, Spawn};
 
+    #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct TriangularGrid<T> {
-        bounds: (Vec2, Vec2),
+        pub(crate) bounds: (Vec2, Vec2),
         pub width: usize,
         pub height: usize,
         pub grid: Vec<T>,
@@ -114,9 +116,10 @@ pub mod constructor {
             }
         }
     }
+
     pub struct Layer {
-        constraint: Constraint,
-        grid: TriangularGrid<Option<(usize, Rgba<u8>)>>,
+        pub(crate) constraint: Constraint,
+        pub(crate) grid: TriangularGrid<Option<(usize, Rgba<u8>)>>,
         pub base_particle: Particle,
         pub link: Option<Link>,
         pub strength: f32,
@@ -315,7 +318,7 @@ pub mod map {
     use serde::{Deserialize, Serialize};
     use solver::{particle::Particle, Connection, Constraint, Solver};
 
-    #[derive(PartialEq, Clone, Serialize, Deserialize)]
+    #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
     pub struct Spawn {
         pub pos: Vec2,
         pub team: usize,
@@ -337,15 +340,152 @@ pub mod map {
         }
 
         pub fn texture_paths<P: AsRef<Path>>(&self, base_path: P) -> Vec<PathBuf> {
+            Self::get_texture_paths(&self.name, self.textures_num, base_path)
+        }
+
+        pub fn get_texture_paths<P: AsRef<Path>>(name: &str, num: usize, base_path: P) -> Vec<PathBuf> {
             let mut path = PathBuf::from(base_path.as_ref());
-            path.push(&self.name);
+            path.push(name);
             let mut textures = Vec::new();
-            for i in 0..self.textures_num {
+            for i in 0..num {
                 let mut texture_path = path.clone();
                 texture_path.push(&format!("texture_{i}.png"));
                 textures.push(texture_path);
             }
             textures
+        }
+
+        pub fn serialize(&self) -> Vec<u8> {
+            postcard::to_stdvec(&self).unwrap()
+        }
+
+        pub fn deserialize(bytes: &[u8]) -> Self {
+            postcard::from_bytes(bytes).unwrap()
+        }
+    }
+}
+
+pub mod serde {
+    use std::path::{Path, PathBuf};
+
+    use bevy::asset::AssetServer;
+    use image::Rgba;
+    use serde::{Deserialize, Serialize};
+    use solver::{particle::Particle, Connection, Constraint, Link};
+
+    use crate::map::{Map, Spawn};
+
+    use super::constructor::*;
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct SerdeLayer {
+        pub(crate) constraint: Constraint,
+        pub(crate) grid: TriangularGrid<Option<(usize, [u8; 4])>>,
+        pub base_particle: Particle,
+        pub link: Option<Link>,
+        pub strength: f32,
+        pub particles: Option<Vec<Particle>>,
+        pub connections: Option<Vec<Connection>>,
+    }
+
+    impl SerdeLayer {
+        pub fn to_layer(self) -> Layer {
+            let mut grid = TriangularGrid::<Option<(usize, Rgba<u8>)>> {
+                bounds: self.grid.bounds,
+                width: self.grid.width,
+                height: self.grid.height,
+                grid: vec![]
+            };
+            let grid_particles = self.grid.grid.into_iter().map(|color| {
+                color.map(|(i, color)| (i, Rgba::<u8>(color)))
+            })
+            .collect();
+            grid.grid = grid_particles;
+            Layer {
+                constraint: self.constraint,
+                grid,
+                base_particle: self.base_particle,
+                link: self.link,
+                strength: self.strength,
+                particles: self.particles,
+                connections: self.connections,
+            }
+        }
+
+        pub fn from_layer(layer: &Layer) -> Self {
+            let mut grid = TriangularGrid::<Option<(usize, [u8; 4])>> {
+                bounds: layer.grid.bounds,
+                width: layer.grid.width,
+                height: layer.grid.height,
+                grid: vec![]
+            };
+            let grid_particles = layer.grid.grid.iter().map(|color| {
+                color.map(|(i, color)| (i, color.0))
+            })
+            .collect();
+            grid.grid = grid_particles;
+            Self {
+                constraint: layer.constraint,
+                grid,
+                base_particle: layer.base_particle,
+                link: layer.link,
+                strength: layer.strength,
+                particles: layer.particles.clone(),
+                connections: layer.connections.clone(),
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct SerdeMapConstructor {
+        pub name: String,
+        pub constraint: Constraint,
+        pub layers: Vec<SerdeLayer>,
+        pub spawns: Vec<Spawn>,
+        pub textures_num: usize,
+        pub particles: Option<Vec<Particle>>,
+        pub connections: Option<Vec<Connection>>,
+    }
+
+    impl SerdeMapConstructor {
+        pub fn to_constructor<P: AsRef<Path>>(self, map_path: P, asset_server: &AssetServer) -> MapConstructor {
+            let layers: Vec<Layer> = self.layers.into_iter()
+                .map(|layer| layer.to_layer())
+                .collect();
+            let mut textures_base_path = PathBuf::from(map_path.as_ref());
+            textures_base_path.pop();
+            textures_base_path.pop();
+            let textures = Map::get_texture_paths(&self.name, self.textures_num, textures_base_path)
+                .into_iter()
+                .map(|path| {
+                    asset_server.load(path)
+                })
+                .collect();
+            MapConstructor {
+                name: self.name,
+                constraint: self.constraint,
+                layers,
+                spawns: self.spawns,
+                textures,
+                particles: self.particles,
+                connections: self.connections,
+            }
+        }
+
+        pub fn from_constructor(constructor: &MapConstructor) -> Self {
+            let layers: Vec<SerdeLayer> = constructor.layers.iter()
+                .map(|layer| SerdeLayer::from_layer(layer))
+                .collect();
+            
+            Self {
+                name: constructor.name.clone(),
+                constraint: constructor.constraint,
+                layers,
+                spawns: constructor.spawns.clone(),
+                textures_num: constructor.textures.len(),
+                particles: constructor.particles.clone(),
+                connections: constructor.connections.clone(),
+            }
         }
 
         pub fn serialize(&self) -> Vec<u8> {
