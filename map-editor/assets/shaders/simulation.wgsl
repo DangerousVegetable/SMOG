@@ -53,5 +53,5 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         texture_sampler, 
         in.uv);
      
-    return mix(color, in.color, color[3]*in.color[3]);
+    return color*in.color;
 }

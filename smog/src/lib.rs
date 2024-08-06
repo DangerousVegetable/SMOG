@@ -22,10 +22,9 @@ pub mod render {
                 ViewBinnedRenderPhases, ViewSortedRenderPhases,
             }, render_resource::{
                 binding_types::{sampler, texture_2d}, BindGroup, BindGroupEntries, BindGroupLayout, BindGroupLayoutEntries, Buffer, BufferUsages, ColorTargetState, ColorWrites, CompareFunction, DepthStencilState, FragmentState, IndexFormat, MultisampleState, PipelineCache, PrimitiveState, RawBufferVec, RenderPipelineDescriptor, SpecializedRenderPipeline, SpecializedRenderPipelines, TextureFormat, VertexAttribute, VertexBufferLayout, VertexFormat, VertexState, VertexStepMode
-            }, renderer::{RenderDevice, RenderQueue}, texture::{BevyDefault as _, GpuImage}, view::{self, ExtractedView, ViewUniforms, VisibilitySystems, VisibleEntities}, Render, RenderApp, RenderSet
+            }, renderer::{RenderDevice, RenderQueue}, texture::{BevyDefault as _, GpuImage}, view::{self, ExtractedView, ViewUniforms, VisibilitySystems, VisibleEntities}, MainWorld, Render, RenderApp, RenderSet
         },
     };
-    use bytemuck::{Pod, Zeroable};
 
     pub mod particle;
     mod vertex;
@@ -155,7 +154,8 @@ pub mod render {
                     Render,
                     prepare_simulation_buffers.in_set(RenderSet::PrepareResources),
                 )
-                .add_systems(Render, queue_custom_phase_item.in_set(RenderSet::Queue));
+                .add_systems(Render, queue_simulation.in_set(RenderSet::Queue))
+                .add_systems(ExtractSchedule, update_simulation_textures);
         }
     }
 
@@ -187,7 +187,7 @@ pub mod render {
 
     /// A render-world system that enqueues the entity with custom rendering into
     /// the transparent render phases of each view.
-    fn queue_custom_phase_item(
+    fn queue_simulation(
         pipeline_cache: Res<PipelineCache>,
         custom_phase_pipeline: Res<SimulationPipeline>,
         msaa: Res<Msaa>,
@@ -379,14 +379,28 @@ pub mod render {
     }
 
     #[derive(Resource)]
-    struct SimulationTextures {
-        textures: Vec<Handle<Image>>,
+    pub struct SimulationTextures {
+        pub textures: Vec<Handle<Image>>,
     }
 
     impl SimulationTextures {
-        const SIMULATION_TEXTURES: [&'static str; 1] = [
+        pub const SIMULATION_TEXTURES: [&'static str; 5] = [
             "particle-empty.png",
+            "particle-sand.png",
+            "particle-metal.png", 
+            "particle-motor.png", 
+            "particle-spike.png",
         ];
+    }
+
+    fn update_simulation_textures(mut commands: Commands, mut main_world: ResMut<MainWorld>) {
+        let Some(textures) = main_world.remove_resource::<SimulationTextures>() else { return };
+        commands.remove_resource::<SimulationPipeline>();
+        commands.remove_resource::<SpecializedRenderPipelines<SimulationPipeline>>();
+
+        commands.insert_resource(textures);
+        commands.init_resource::<SimulationPipeline>();
+        commands.init_resource::<SpecializedRenderPipelines<SimulationPipeline>>();
     }
 
 

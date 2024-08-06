@@ -1,2 +1,0 @@
-particle-xd.png
-particle-metal.png

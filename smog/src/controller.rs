@@ -63,7 +63,7 @@ impl Controller {
                 }
             }
             GamePacket::Spawn(pos) => {
-                solver.add_particle(GROUND.position(pos).velocity(vec2(0., -0.5)));
+                solver.add_particle(GROUND.with_position(pos).with_velocity(vec2(0., -0.5)));
             }
             GamePacket::Tank(pos) => {
                 solver.add_tread(pos, 0., 7);

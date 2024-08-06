@@ -11,7 +11,7 @@ pub mod constructor {
     use rand::Rng;
     use solver::{particle::Particle, Connection, Constraint, Link, Solver, PARTICLE_RADIUS};
 
-    use crate::map::Map;
+    use crate::map::{Map, Spawn};
 
     pub struct TriangularGrid<T> {
         bounds: (Vec2, Vec2),
@@ -176,7 +176,7 @@ pub mod constructor {
                     let color = color.0.map(|c| c as f32 / 255.);
                     let color = Color::srgba(color[0], color[1], color[2], color[3]).to_linear();
                     let color = Vec4::new(color.red, color.green, color.blue, color.alpha);
-                    particles.push(self.base_particle.position(pos).color(color));
+                    particles.push(self.base_particle.with_position(pos).with_color(color));
                 }
             });
             particles
@@ -237,7 +237,7 @@ pub mod constructor {
         pub name: String,
         pub constraint: Constraint,
         pub layers: Vec<Layer>,
-        pub spawns: Vec<Vec<Vec2>>,
+        pub spawns: Vec<Spawn>,
         pub textures: Vec<Handle<Image>>,
 
         pub particles: Option<Vec<Particle>>,
@@ -289,15 +289,41 @@ pub mod constructor {
             let connections = self.connections.as_ref().unwrap();
             Solver::new(self.constraint, particles, connections)
         }
+
+        pub fn map(&mut self) -> Map {
+            if self.particles.is_none() || self.connections.is_none() {
+                self.bake_layers();
+            }
+            let particles = self.particles.as_ref().unwrap().clone();
+            let connections = self.connections.as_ref().unwrap().clone();
+            Map {
+                name: self.name.clone(),
+                constraint: self.constraint,
+                particles,
+                connections,
+                spawns: self.spawns.clone(),
+                textures_num: self.textures.len(),
+            }
+        }
     }
 }
 
 pub mod map {
+    use bevy::math::Vec2;
     use solver::{particle::Particle, Connection, Constraint, Solver};
+
+    #[derive(PartialEq, Clone)]
+    pub struct Spawn {
+        pub pos: Vec2,
+        pub team: usize,
+    }
     pub struct Map {
+        pub name: String,
         pub constraint: Constraint,
         pub particles: Vec<Particle>,
         pub connections: Vec<Connection>,
+        pub spawns: Vec<Spawn>,
+        pub textures_num: usize,
     }
 
     impl Map {

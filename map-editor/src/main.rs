@@ -1,12 +1,14 @@
 use bevy::asset::{AssetLoader, AssetPath, LoadState, LoadedAsset};
 use bevy::ecs::observer::TriggerTargets;
-use bevy::input::mouse::MouseWheel;
+use bevy::ecs::query::QuerySortedIter;
+use bevy::input::mouse::{MouseButtonInput, MouseWheel};
 use bevy::math::vec2;
 use bevy::prelude::*;
 
 use bevy::render::camera::ScalingMode;
 use bevy::render::render_asset::RenderAssets;
 use bevy::render::texture::GpuImage;
+use bevy::window::PrimaryWindow;
 use bevy::{
     self,
     app::App,
@@ -15,10 +17,13 @@ use bevy::{
     DefaultPlugins,
 };
 
+use map_editor::map::Spawn;
 use text_io::try_read;
 
 use map_editor::constructor::{self, MapConstructor};
-use smog::render::{RenderSimulationPlugin, RenderedSimulation, SimulationCamera};
+use smog::render::{
+    RenderSimulationPlugin, RenderedSimulation, SimulationCamera, SimulationTextures,
+};
 use solver::{Link, Solver};
 
 #[derive(Component)]
@@ -31,13 +36,8 @@ struct TextureColumn;
 enum ButtonAction {
     AddTexture,
     RemoveTexture(Entity, Handle<Image>),
+    //RemoveSpawn(Entity, Spawn)
 }
-
-//#[derive(Component)]
-//enum InputAction {
-//    ChangeMass,
-//    ChangeTexture,
-//}
 
 #[derive(Component)]
 enum TextMarker {
@@ -48,7 +48,7 @@ enum TextMarker {
     Elasticity,
 }
 
-fn setup_ui(mut commands: Commands) {
+fn setup_ui(mut commands: Commands, textures: Res<SimulationTextures>) {
     let style = Style {
         width: Val::Px(160.0),
         height: Val::Px(30.0),
@@ -79,7 +79,7 @@ fn setup_ui(mut commands: Commands) {
             border: UiRect::all(Val::Px(2.)),
             flex_direction: FlexDirection::Column,
             justify_content: JustifyContent::Center,
-            align_items: AlignItems::Center,    
+            align_items: AlignItems::Center,
             ..default()
         },
         border_color: Color::WHITE.into(),
@@ -206,7 +206,7 @@ fn setup_ui(mut commands: Commands) {
                     ..default()
                 })
                 .with_children(|parent| {
-                    // Button 4
+                    // Add texture button
                     parent
                         .spawn(button.clone())
                         .with_children(|parent| {
@@ -216,13 +216,18 @@ fn setup_ui(mut commands: Commands) {
                             });
                         })
                         .insert(ButtonAction::AddTexture);
+
+                    // Default textures
+                    for handle in textures.textures.iter() {
+                        parent.spawn(ButtonBundle {
+                            image: UiImage::new(handle.clone()),
+                            ..button.clone()
+                        });
+                    }
                 })
                 .insert(TextureColumn);
         });
 }
-
-const BORDER_COLOR_ACTIVE: Color = Color::srgb(0.75, 0.52, 0.99);
-const BORDER_COLOR_INACTIVE: Color = Color::srgb(0.25, 0.25, 0.25);
 
 fn update_ui_system(mut query: Query<(&mut Text, &TextMarker)>, constructor: Query<&Constructor>) {
     let constructor = constructor.single();
@@ -231,15 +236,20 @@ fn update_ui_system(mut query: Query<(&mut Text, &TextMarker)>, constructor: Que
         for (mut text, marker) in &mut query {
             match marker {
                 TextMarker::Mass => text.sections[0].value = layer.base_particle.mass.to_string(),
-                TextMarker::Texture => text.sections[0].value = layer.base_particle.texture.to_string(),
-                TextMarker::Strength if layer.link.is_some() => text.sections[0].value = layer.strength.to_string(),
+                TextMarker::Texture => {
+                    text.sections[0].value = layer.base_particle.texture.to_string()
+                }
+                TextMarker::Strength if layer.link.is_some() => {
+                    text.sections[0].value = layer.strength.to_string()
+                }
                 TextMarker::Durability if layer.link.is_some() => {
                     text.sections[0].value = layer.link.unwrap().durability().to_string();
-                },
+                }
                 TextMarker::Elasticity if layer.link.is_some() => {
-                    text.sections[0].value = format!("{} %", layer.link.unwrap().elasticity().to_string());
-                },
-                _ => text.sections[0].value = "---".to_string()
+                    text.sections[0].value =
+                        format!("{} %", layer.link.unwrap().elasticity().to_string());
+                }
+                _ => text.sections[0].value = "---".to_string(),
             }
         }
     }
@@ -248,19 +258,21 @@ fn update_ui_system(mut query: Query<(&mut Text, &TextMarker)>, constructor: Que
 #[derive(Component)]
 struct Constructor(MapConstructor, usize);
 
-fn setup(mut commands: Commands) {
-    let constructor = MapConstructor::new(
+fn setup(mut commands: Commands, textures: Res<SimulationTextures>) {
+    // create constructor entity
+    let mut constructor = MapConstructor::new(
         "map".to_string(),
         solver::Constraint::Box(vec2(-300., -50.), vec2(300., 150.)),
     );
+    constructor.textures = textures.textures.to_vec();
+
+    // spawn simulation camera
     let (bl, tr) = constructor.constraint.bounds();
     let projection = OrthographicProjection {
         scale: 1.0,
         scaling_mode: ScalingMode::FixedHorizontal(tr.x - bl.x),
         ..Default::default()
     };
-
-    // Spawn simulation camera
     commands
         .spawn(Camera2dBundle {
             projection: projection.into(),
@@ -273,6 +285,8 @@ fn setup(mut commands: Commands) {
         &[],
         &[],
     )));
+
+    // spawn constructor
     commands.spawn(Constructor(constructor, 0));
 }
 
@@ -309,6 +323,9 @@ fn button_system(
                     };
                     constructor.0.textures.remove(ind);
                     commands.entity(*button).despawn_recursive();
+                    commands.insert_resource(SimulationTextures {
+                        textures: constructor.0.textures.clone(),
+                    });
                     info!("Texture removed!");
                 }
             }
@@ -316,7 +333,42 @@ fn button_system(
     }
 }
 
-//fn text_input_system
+#[derive(Component, PartialEq, Eq, PartialOrd, Ord)]
+struct SpawnIndex(usize);
+
+fn spawn_sprites_system(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    constructor: Query<&Constructor>,
+    mut query: Query<(Entity, &mut Transform, &mut SpawnIndex, &mut Sprite)>,
+) {
+    let spawn_image = asset_server.load("spawn.png");
+    let constructor = constructor.single();
+    let mut last_sprite = None;
+    for (i, (entity, mut transform, mut spawn_ind, mut sprite)) in query.iter_mut().sort::<&SpawnIndex>().enumerate() {
+        if i >= constructor.0.spawns.len() {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        *spawn_ind = SpawnIndex(i);
+        let spawn = &constructor.0.spawns[i];
+        *transform = Transform::from_translation(spawn.pos.extend(-0.1));
+        sprite.color = Color::hsl(360. * spawn.team as f32 / 4., 0.95, 0.7);
+        last_sprite = Some(i);
+    }
+    let start = last_sprite.map_or(0, |ind| ind+1);
+    for i in start..constructor.0.spawns.len() {
+        commands.spawn(SpriteBundle {
+            sprite: Sprite {
+                custom_size: Some(vec2(10., 10.,)),
+                ..default()
+            },
+            texture: spawn_image.clone(),
+            ..default()
+        })
+        .insert(SpawnIndex(i));
+    }
+}
 
 fn drag_and_drop_system(
     mut events: EventReader<FileDragAndDrop>,
@@ -386,9 +438,12 @@ fn check_assets_system(
             let Some(_) = image_assets.get(handle) else {
                 return;
             };
-            constructor.0.textures.push(handle.clone());
-            info!("Texture added!");
             next_state.set(AppState::PendingTexture(None));
+            constructor.0.textures.push(handle.clone());
+            commands.insert_resource(SimulationTextures {
+                textures: constructor.0.textures.clone(),
+            });
+            info!("Texture added!");
 
             let style = Style {
                 width: Val::Px(160.0),
@@ -424,13 +479,17 @@ fn check_assets_system(
 }
 
 fn control_system(
+    mut commands: Commands,
     mut evr_scroll: EventReader<MouseWheel>,
-    keyboard_input: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
     mut simulation: Query<&mut RenderedSimulation>,
     mut constructor: Query<&mut Constructor>,
     mut camera: Query<(&Camera, &mut OrthographicProjection, &mut Transform)>,
 ) {
     let (camera, mut projection, mut camera_transform) = camera.single_mut();
+    let window = windows.single();
     let mut simulation = simulation.single_mut();
     let mut constructor = constructor.single_mut();
 
@@ -440,32 +499,32 @@ fn control_system(
     }
 
     let mut factor: f32 = 1.;
-    if keyboard_input.pressed(KeyCode::ShiftLeft) {
+    if keyboard.pressed(KeyCode::ShiftLeft) {
         factor = 5.;
     }
-    if keyboard_input.pressed(KeyCode::KeyA) {
+    if keyboard.pressed(KeyCode::KeyA) {
         camera_transform.translation.x -= 0.1 * factor;
     }
-    if keyboard_input.pressed(KeyCode::KeyD) {
+    if keyboard.pressed(KeyCode::KeyD) {
         camera_transform.translation.x += 0.1 * factor;
     }
-    if keyboard_input.pressed(KeyCode::KeyS) {
+    if keyboard.pressed(KeyCode::KeyS) {
         camera_transform.translation.y -= 0.1 * factor;
     }
-    if keyboard_input.pressed(KeyCode::KeyW) {
+    if keyboard.pressed(KeyCode::KeyW) {
         camera_transform.translation.y += 0.1 * factor;
     }
 
     // layer controls
     let layers_num = constructor.0.layers.len();
     if layers_num > 0 {
-        if keyboard_input.just_pressed(KeyCode::ArrowLeft) {
+        if keyboard.just_pressed(KeyCode::ArrowLeft) {
             let ind = (constructor.1 + (layers_num - 1)) % layers_num;
             constructor.1 = ind;
             simulation.0 = constructor.0.layers[ind].solver();
             info!("Switching to layer: {ind}");
         }
-        if keyboard_input.just_pressed(KeyCode::ArrowRight) {
+        if keyboard.just_pressed(KeyCode::ArrowRight) {
             let ind = (constructor.1 + 1) % layers_num;
             constructor.1 = ind;
             simulation.0 = constructor.0.layers[ind].solver();
@@ -474,56 +533,79 @@ fn control_system(
 
         let layer_ind = constructor.1;
         let layer = &mut constructor.0.layers[layer_ind];
-        if keyboard_input.pressed(KeyCode::ControlLeft) {
-            if keyboard_input.just_pressed(KeyCode::KeyM) {
+        if keyboard.pressed(KeyCode::ControlLeft) {
+            if keyboard.just_pressed(KeyCode::KeyM) {
                 print!("mass << ");
                 let read: Result<f32, _> = try_read!();
-                let Ok(read) = read else {error!("Incorrect input!"); return};
+                let Ok(read) = read else {
+                    error!("Incorrect input!");
+                    return;
+                };
                 layer.base_particle.mass = read;
                 info!("Mass updated!");
             }
-            if keyboard_input.just_pressed(KeyCode::KeyT) {
+            if keyboard.just_pressed(KeyCode::KeyT) {
                 print!("texture << ");
                 let read: Result<u32, _> = try_read!();
-                let Ok(read) = read else {error!("Incorrect input!"); return};
+                let Ok(read) = read else {
+                    error!("Incorrect input!");
+                    return;
+                };
                 layer.base_particle.texture = read;
                 info!("Texture updated!");
             }
-            if keyboard_input.just_pressed(KeyCode::KeyS) {
+            if keyboard.just_pressed(KeyCode::KeyS) {
                 print!("strength << ");
                 let read: Result<f32, _> = try_read!();
-                let Ok(read) = read else {error!("Incorrect input!"); return};
+                let Ok(read) = read else {
+                    error!("Incorrect input!");
+                    return;
+                };
                 layer.strength = read;
                 info!("Strength updated!");
             }
-            if keyboard_input.just_pressed(KeyCode::KeyD) {
+            if keyboard.just_pressed(KeyCode::KeyD) {
                 print!("durability << ");
                 let read: Result<f32, _> = try_read!();
-                let Ok(read) = read else {error!("Incorrect input!"); return};
+                let Ok(read) = read else {
+                    error!("Incorrect input!");
+                    return;
+                };
                 let elasticity = layer.link.map_or(1., |l| l.elasticity());
-                layer.link = Some(Link::Rigid{length: 1., durability: read, elasticity});
+                layer.link = Some(Link::Rigid {
+                    length: 1.,
+                    durability: read,
+                    elasticity,
+                });
                 info!("Durability updated!");
             }
-            if keyboard_input.just_pressed(KeyCode::KeyE) {
+            if keyboard.just_pressed(KeyCode::KeyE) {
                 print!("elasticity << ");
                 let read: Result<f32, _> = try_read!();
-                let Ok(read) = read else {error!("Incorrect input!"); return};
+                let Ok(read) = read else {
+                    error!("Incorrect input!");
+                    return;
+                };
                 let durability = layer.link.map_or(1., |l| l.durability());
-                layer.link = Some(Link::Rigid{length: 1., durability, elasticity: read});
+                layer.link = Some(Link::Rigid {
+                    length: 1.,
+                    durability,
+                    elasticity: read,
+                });
                 info!("Elasticity updated!");
             }
-            if keyboard_input.just_pressed(KeyCode::Backspace) {
+            if keyboard.just_pressed(KeyCode::Backspace) {
                 layer.link = None;
                 info!("All connections removed!");
             }
             layer.bake();
         }
 
-        if keyboard_input.just_pressed(KeyCode::ArrowDown) {
+        if keyboard.just_pressed(KeyCode::ArrowDown) {
             simulation.0 = constructor.0.layers[layer_ind].solver();
             info!("Showing layer: {layer_ind}");
         }
-        if keyboard_input.just_released(KeyCode::Delete) {
+        if keyboard.just_released(KeyCode::Delete) {
             constructor.0.layers.remove(layer_ind);
             constructor.1 = usize::max(1, layer_ind) - 1;
             info!("Layer {layer_ind} removed");
@@ -531,19 +613,73 @@ fn control_system(
     }
 
     // simulation controls
-    if keyboard_input.just_pressed(KeyCode::Enter) {
+    if keyboard.just_pressed(KeyCode::Enter) {
         constructor.0.bake_layers();
         simulation.0 = constructor.0.solver();
+        info!(
+            "This simulation has {} particles and {} connections.",
+            constructor.0.particles.as_ref().map_or(0, |p| p.len()),
+            constructor.0.connections.as_ref().map_or(0, |p| p.len())
+        );
     }
-    if keyboard_input.just_pressed(KeyCode::Tab) {
+    if keyboard.just_pressed(KeyCode::Tab) {
         simulation.0 = constructor.0.solver();
     }
 
-    if keyboard_input.pressed(KeyCode::Space) {
+    if keyboard.pressed(KeyCode::Space) {
         let sub_ticks = 8;
         let dt = 1. / 60. / sub_ticks as f32;
         for _ in 0..sub_ticks {
             simulation.0.solve(dt);
+        }
+    }
+
+    // spawn controls
+    if let Some(cursor_world_position) = window
+        .cursor_position()
+        .and_then(|cursor| {
+            camera.viewport_to_world(&GlobalTransform::from(camera_transform.clone()), cursor)
+        })
+        .map(|ray| ray.origin.truncate())
+    {
+        if keyboard.just_pressed(KeyCode::Digit1) {
+            constructor.0.spawns.push(Spawn {
+                pos: cursor_world_position,
+                team: 0,
+            });
+            info!("Spawn added!");
+        }
+        if keyboard.just_pressed(KeyCode::Digit2) {
+            constructor.0.spawns.push(Spawn {
+                pos: cursor_world_position,
+                team: 1,
+            });
+            info!("Spawn added!");
+        }
+        if keyboard.just_pressed(KeyCode::Digit3) {
+            constructor.0.spawns.push(Spawn {
+                pos: cursor_world_position,
+                team: 2,
+            });
+            info!("Spawn added!");
+        }
+        if keyboard.just_pressed(KeyCode::Digit4) {
+            constructor.0.spawns.push(Spawn {
+                pos: cursor_world_position,
+                team: 3,
+            });
+            info!("Spawn added!");
+        }
+
+        if mouse.just_pressed(MouseButton::Right) {
+            let old_len = constructor.0.spawns.len();
+            constructor
+                .0
+                .spawns
+                .retain(|spawn| spawn.pos.distance(cursor_world_position) > 5.);
+            if constructor.0.spawns.len() != old_len {
+                info!("Spawn removed!");
+            }
         }
     }
 }
@@ -557,13 +693,22 @@ enum AppState {
 
 fn main() {
     App::new()
-        .add_plugins((DefaultPlugins, RenderSimulationPlugin))
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                title: "SMOG Editor".to_string(),
+                ..default()
+            }),
+            ..default()
+        }))
+        .add_plugins(RenderSimulationPlugin)
         .insert_state(AppState::Main)
-        .add_systems(Startup, setup_ui)
+        .init_resource::<SimulationTextures>()
         .add_systems(Startup, setup)
+        .add_systems(Startup, setup_ui)
         .add_systems(Update, drag_and_drop_system)
         .add_systems(Update, check_assets_system)
         .add_systems(Update, update_ui_system)
+        .add_systems(Update, spawn_sprites_system)
         .add_systems(Update, button_system)
         .add_systems(Update, control_system)
         .run();

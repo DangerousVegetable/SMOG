@@ -1,29 +1,29 @@
-use bevy::math::{vec2, Vec2, Vec4, VectorSpace};
+use bevy::math::{vec2, Vec2, Vec4};
 
 use crate::{Constraint, PARTICLE_RADIUS};
 
 pub const GROUND: Particle = Particle {
     mass: 1.,
-    texture: 0,
+    texture: 1,
     ..Particle::null()
 };
 
 pub const METAL: Particle = Particle {
     mass: 3.,
-    texture: 1,
+    texture: 2,
     ..Particle::null()
 };
 
 pub const MOTOR: Particle = Particle {
     mass: 3.,
-    texture: 2,
+    texture: 3,
     kind: Kind::Motor(0.),
     ..Particle::null()
 };
 
 pub const SPIKE: Particle = Particle {
     mass: 0.1,
-    texture: 3,
+    texture: 4,
     radius: PARTICLE_RADIUS / 2.,
     ..Particle::null()
 };
@@ -75,7 +75,7 @@ impl Particle {
         }
     }
 
-    pub fn position(self, pos: Vec2) -> Self {
+    pub fn with_position(self, pos: Vec2) -> Self {
         Particle {
             pos,
             pos_old: pos,
@@ -83,15 +83,15 @@ impl Particle {
         }
     }
 
-    pub fn kind(self, kind: Kind) -> Self {
+    pub fn with_kind(self, kind: Kind) -> Self {
         Particle { kind, ..self }
     }
 
-    pub fn color(self, color: Vec4) -> Self {
+    pub fn with_color(self, color: Vec4) -> Self {
         Particle { color, ..self }
     }
 
-    pub fn velocity(self, velocity: Vec2) -> Self {
+    pub fn with_velocity(self, velocity: Vec2) -> Self {
         Particle {
             pos_old: self.pos - velocity,
             ..self
