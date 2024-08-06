@@ -10,5 +10,5 @@ rand = "0.8.5"
 smog = {path = "../smog"}
 solver = {path = "../solver"}
 text_io = "0.1.12"
-postcard = "1.0.0"
+postcard = {version = "1.0.0", features = ["use-std"]}
 serde = { version = "1.0.*", default-features = false }

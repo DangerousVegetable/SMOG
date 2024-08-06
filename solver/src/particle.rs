@@ -1,4 +1,5 @@
 use bevy::math::{vec2, Vec2, Vec4};
+use serde::{Deserialize, Serialize};
 
 use crate::{Constraint, PARTICLE_RADIUS};
 
@@ -28,7 +29,7 @@ pub const SPIKE: Particle = Particle {
     ..Particle::null()
 };
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Particle {
     pub radius: f32,
     pub mass: f32,
@@ -46,7 +47,7 @@ impl Default for Particle {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Kind {
     None,
     Motor(f32), // motor with acc

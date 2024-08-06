@@ -1,3 +1,7 @@
+use std::fs::{self, File};
+use std::io::Write;
+use std::path::PathBuf;
+
 use bevy::asset::{AssetLoader, AssetPath, LoadState, LoadedAsset};
 use bevy::ecs::observer::TriggerTargets;
 use bevy::ecs::query::QuerySortedIter;
@@ -8,6 +12,7 @@ use bevy::prelude::*;
 use bevy::render::camera::ScalingMode;
 use bevy::render::render_asset::RenderAssets;
 use bevy::render::texture::GpuImage;
+use bevy::tasks::IoTaskPool;
 use bevy::window::PrimaryWindow;
 use bevy::{
     self,
@@ -17,8 +22,9 @@ use bevy::{
     DefaultPlugins,
 };
 
-use map_editor::map::Spawn;
-use text_io::try_read;
+use image::RgbaImage;
+use map_editor::map::{Map, Spawn};
+use text_io::{read, try_read};
 
 use map_editor::constructor::{self, MapConstructor};
 use smog::render::{
@@ -479,7 +485,6 @@ fn check_assets_system(
 }
 
 fn control_system(
-    mut commands: Commands,
     mut evr_scroll: EventReader<MouseWheel>,
     mouse: Res<ButtonInput<MouseButton>>,
     keyboard: Res<ButtonInput<KeyCode>>,
@@ -487,6 +492,7 @@ fn control_system(
     mut simulation: Query<&mut RenderedSimulation>,
     mut constructor: Query<&mut Constructor>,
     mut camera: Query<(&Camera, &mut OrthographicProjection, &mut Transform)>,
+    image_assets: Res<Assets<Image>>,
 ) {
     let (camera, mut projection, mut camera_transform) = camera.single_mut();
     let window = windows.single();
@@ -533,7 +539,7 @@ fn control_system(
 
         let layer_ind = constructor.1;
         let layer = &mut constructor.0.layers[layer_ind];
-        if keyboard.pressed(KeyCode::ControlLeft) {
+        if keyboard.pressed(KeyCode::AltLeft) {
             if keyboard.just_pressed(KeyCode::KeyM) {
                 print!("mass << ");
                 let read: Result<f32, _> = try_read!();
@@ -682,6 +688,49 @@ fn control_system(
             }
         }
     }
+
+    if keyboard.pressed(KeyCode::ControlLeft) && keyboard.pressed(KeyCode::KeyS) {
+        print!("name (without spaces) << ");
+        let name: String = read!();
+        constructor.0.name = name;
+        save_map(&mut constructor.0, &image_assets);
+    }
+}
+
+fn save_textures(map: &Map, textures: Vec<Image>) {
+    let texture_paths = map.texture_paths("assets/maps");
+    for (i, texture) in textures.into_iter().enumerate() {
+        let image: RgbaImage = texture.try_into_dynamic().unwrap().to_rgba8();
+        image.save(&texture_paths[i])
+            .expect("Error while saving texture");
+    }
+}
+
+fn save_map(constructor: &mut MapConstructor, image_assets: &Assets<Image>) {
+    let map = constructor.map();
+    let textures: Vec<Image> = constructor.textures.iter()
+        .map(|handle| {
+            image_assets.get(handle).unwrap().clone()
+        })
+        .collect();
+
+    IoTaskPool::get()
+        .spawn(async move {
+            let mut base_path = PathBuf::from("assets/maps");
+            base_path.push(&map.name);
+            fs::create_dir_all(&base_path)
+                .expect("Error while creating map directory");
+
+            save_textures(&map, textures);
+            info!("Textures saved!");
+
+            base_path.push("map.smog");
+            File::create(base_path)
+                .and_then(|mut file| file.write(&map.serialize()))
+                .expect("Error while writing map to file");
+            info!("Map \"{}\" saved!", map.name);
+        })
+        .detach();
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash, States)]

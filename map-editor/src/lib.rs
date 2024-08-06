@@ -309,14 +309,19 @@ pub mod constructor {
 }
 
 pub mod map {
+    use std::path::{Path, PathBuf};
+
     use bevy::math::Vec2;
+    use serde::{Deserialize, Serialize};
     use solver::{particle::Particle, Connection, Constraint, Solver};
 
-    #[derive(PartialEq, Clone)]
+    #[derive(PartialEq, Clone, Serialize, Deserialize)]
     pub struct Spawn {
         pub pos: Vec2,
         pub team: usize,
     }
+
+    #[derive(Serialize, Deserialize)]
     pub struct Map {
         pub name: String,
         pub constraint: Constraint,
@@ -329,6 +334,26 @@ pub mod map {
     impl Map {
         pub fn solver(&self) -> Solver {
             Solver::new(self.constraint, &self.particles, &self.connections)
+        }
+
+        pub fn texture_paths<P: AsRef<Path>>(&self, base_path: P) -> Vec<PathBuf> {
+            let mut path = PathBuf::from(base_path.as_ref());
+            path.push(&self.name);
+            let mut textures = Vec::new();
+            for i in 0..self.textures_num {
+                let mut texture_path = path.clone();
+                texture_path.push(&format!("texture_{i}.png"));
+                textures.push(texture_path);
+            }
+            textures
+        }
+
+        pub fn serialize(&self) -> Vec<u8> {
+            postcard::to_stdvec(&self).unwrap()
+        }
+
+        pub fn deserialize(bytes: &[u8]) -> Self {
+            postcard::from_bytes(bytes).unwrap()
         }
     }
 }

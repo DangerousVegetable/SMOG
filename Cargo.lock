@@ -1808,6 +1808,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "60b1af1c220855b6ceac025d3f6ecdd2b7c4894bfe9cd9bda4fbb4bc7c0d4cf0"
 
 [[package]]
+name = "embedded-io"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef1a6892d9eef45c8fa6b9e0086428a2cca8491aca8f787c534a3d6d0bcb3ced"
+
+[[package]]
 name = "encase"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3445,6 +3451,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a55c51ee6c0db07e68448e336cf8ea4131a620edefebf9893e759b2d793420f8"
 dependencies = [
  "cobs",
+ "embedded-io",
  "heapless",
  "serde",
 ]
@@ -3986,6 +3993,7 @@ dependencies = [
  "bevy",
  "rand",
  "rayon",
+ "serde",
 ]
 
 [[package]]

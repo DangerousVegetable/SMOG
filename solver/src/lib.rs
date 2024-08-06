@@ -7,6 +7,7 @@ use std::{
 use bevy::math::{vec2, Vec2};
 use rand::Rng;
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 
 pub mod particle;
 mod multithreaded;
@@ -344,7 +345,7 @@ pub fn rnd_in_bounds(bounds: (Vec2, Vec2), margin: f32) -> Vec2 {
     )
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub enum Link {
     Force(f32), // force
     Rigid {
@@ -486,7 +487,7 @@ where
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub enum Constraint {
     Box(Vec2, Vec2), // Rectangle, bottom-left and top-right corners
 }
