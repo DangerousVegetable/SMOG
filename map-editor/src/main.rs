@@ -604,6 +604,9 @@ fn control_system(
                 layer.link = None;
                 info!("All connections removed!");
             }
+        }
+        
+        if keyboard.just_pressed(KeyCode::AltLeft) {
             layer.bake();
         }
 
@@ -689,7 +692,7 @@ fn control_system(
         }
     }
 
-    if keyboard.pressed(KeyCode::ControlLeft) && keyboard.pressed(KeyCode::KeyS) {
+    if keyboard.just_pressed(KeyCode::ControlLeft) && keyboard.just_pressed(KeyCode::KeyS) {
         print!("name (without spaces) << ");
         let name: String = read!();
         constructor.0.name = name;
