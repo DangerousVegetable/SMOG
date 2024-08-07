@@ -21,7 +21,7 @@ pub mod tcp {
         pub listener: Arc<TcpListener>,
         slot_duration: Duration,
         slots_stored: usize,
-        connections_task: Option<JoinHandle<()>>,
+        connection_task: Option<JoinHandle<()>>,
         listen_tasks: Option<Vec<JoinHandle<()>>>,
         send_task: Option<JoinHandle<()>>,
         streams: Arc<Mutex<Vec<Arc<TcpStream>>>>,
@@ -39,7 +39,7 @@ pub mod tcp {
                 listener: Arc::new(listener),
                 slot_duration,
                 slots_stored,
-                connections_task: None,
+                connection_task: None,
                 listen_tasks: None,
                 send_task: None,
                 streams: Arc::new(Mutex::new(vec![])),
@@ -77,7 +77,7 @@ pub mod tcp {
                 info!("Stop listening for new connections");
             });
 
-            self.connections_task = Some(connection_task);
+            self.connection_task = Some(connection_task);
         }
 
         pub fn run<const PACKET_SIZE: usize>(&mut self) {
@@ -180,7 +180,7 @@ pub mod tcp {
         pub fn decline_connections(&mut self) {
             self.accept_connections
                 .store(false, std::sync::atomic::Ordering::Relaxed);
-            self.connections_task.take().map(|c| c.abort());
+            self.connection_task.take().map(|c| c.abort());
         }
 
         pub fn stop(&mut self) {

@@ -33,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         if input_text.starts_with("run") {
             server.decline_connections();
-            std::thread::sleep(Duration::from_secs(1));
+            std::thread::sleep(Duration::from_millis(100));
             server.run::<PACKET_SIZE>();
         }
 
@@ -42,8 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             break;
         }
     }
-
-    std::thread::sleep(Duration::from_secs(1));
+    
     Ok(())
 }
 

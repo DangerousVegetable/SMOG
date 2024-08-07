@@ -1,11 +1,19 @@
 use std::time::{Duration, Instant};
 
 use bevy::{
-    color::palettes::css::RED, diagnostic::FrameTimeDiagnosticsPlugin, input::mouse::{MouseButtonInput, MouseScrollUnit, MouseWheel}, math::{vec2, vec3, Vec3A}, prelude::*, render::{camera::ScalingMode, extract_component::ExtractComponent, primitives::Aabb}, sprite::Anchor, tasks::futures_lite::future, window::PrimaryWindow
+    color::palettes::css::RED,
+    diagnostic::FrameTimeDiagnosticsPlugin,
+    input::mouse::{MouseButtonInput, MouseMotion, MouseScrollUnit, MouseWheel},
+    math::{vec2, vec3, Vec3A, VectorSpace},
+    prelude::*,
+    render::{camera::ScalingMode, extract_component::ExtractComponent, primitives::Aabb},
+    sprite::Anchor,
+    tasks::futures_lite::future,
+    window::PrimaryWindow,
 };
 
-use solver::{particle, PARTICLE_RADIUS};
 use solver::Solver;
+use solver::{particle, PARTICLE_RADIUS};
 
 use smog::render::{RenderSimulationPlugin, RenderedSimulation, SimulationCamera};
 
@@ -35,11 +43,12 @@ fn setup(mut commands: Commands, client: Res<Client>) {
     };
 
     // Spawn the camera with the custom projection
-    commands.spawn(Camera2dBundle {
-        projection: projection.into(),
-        ..Default::default()
-    })
-    .insert(SimulationCamera);
+    commands
+        .spawn(Camera2dBundle {
+            projection: projection.into(),
+            ..Default::default()
+        })
+        .insert(SimulationCamera);
 
     commands
         .spawn(SpatialBundle {
@@ -71,10 +80,13 @@ fn update_sprites(mut simulation: Query<&mut RenderedSimulation>, mut counter: Q
     text.sections[0].value = format!("{}", simulation.0.size());
 }
 
-fn update_physics(client: Res<Client>, mut simulation: Query<(&mut RenderedSimulation, &mut GameController)>) {
+fn update_physics(
+    client: Res<Client>,
+    mut simulation: Query<(&mut RenderedSimulation, &mut GameController)>,
+) {
     let (mut simulation, mut controller) = simulation.single_mut();
     let packets = client.0.get_packets(SUB_TICKS);
-    let dt = 1./60./SUB_TICKS as f32;
+    let dt = 1. / 60. / SUB_TICKS as f32;
 
     for p in packets {
         controller.0.handle_packets(&mut simulation.0, &p);
@@ -84,7 +96,9 @@ fn update_physics(client: Res<Client>, mut simulation: Query<(&mut RenderedSimul
 
 fn control_system(
     mut evr_scroll: EventReader<MouseWheel>,
-    keyboard_input: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    mut mouse_position: Local<Option<Vec2>>,
+    keyboard: Res<ButtonInput<KeyCode>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     client: Res<Client>,
     mut simulation: Query<(&mut RenderedSimulation, &mut GameController)>,
@@ -99,59 +113,69 @@ fn control_system(
         projection.scale *= f32::powf(1.25, ev.y);
     }
 
+    let new_mouse_position = window.cursor_position().and_then(|cursor| {
+        camera.viewport_to_world_2d(&GlobalTransform::from(camera_transform.clone()), cursor)
+    });
+    let delta = if new_mouse_position.is_some() && mouse_position.is_some() {
+        new_mouse_position.unwrap() - mouse_position.unwrap()
+    } else {
+        Vec2::ZERO
+    };
+    if mouse.pressed(MouseButton::Right) {
+        camera_transform.translation -= delta.extend(0.);
+    } else {
+        *mouse_position = new_mouse_position;
+    }
+
     let mut factor: f32 = 1.;
     let mut shift_pressed = false;
-    if keyboard_input.pressed(KeyCode::ShiftLeft) {
+    if keyboard.pressed(KeyCode::ShiftLeft) {
         factor = 5.;
         shift_pressed = true;
     }
-    if keyboard_input.pressed(KeyCode::ArrowLeft) {
+    if keyboard.pressed(KeyCode::ArrowLeft) {
         camera_transform.translation.x -= 0.1 * factor;
     }
-    if keyboard_input.pressed(KeyCode::ArrowRight) {
+    if keyboard.pressed(KeyCode::ArrowRight) {
         camera_transform.translation.x += 0.1 * factor;
     }
-    if keyboard_input.pressed(KeyCode::ArrowDown) {
+    if keyboard.pressed(KeyCode::ArrowDown) {
         camera_transform.translation.y -= 0.1 * factor;
     }
-    if keyboard_input.pressed(KeyCode::ArrowUp) {
+    if keyboard.pressed(KeyCode::ArrowUp) {
         camera_transform.translation.y += 0.1 * factor;
     }
 
     // player
-    if keyboard_input.pressed(KeyCode::KeyA) {
+    if keyboard.pressed(KeyCode::KeyA) {
         client.0.send_packets(&controller.0.move_player(1.));
-    }
-    else if keyboard_input.pressed(KeyCode::KeyD) {
+    } else if keyboard.pressed(KeyCode::KeyD) {
         client.0.send_packets(&controller.0.move_player(-1.));
-    }
-    else {
+    } else {
         client.0.send_packets(&controller.0.move_player(0.));
     }
-    if keyboard_input.just_released(KeyCode::KeyW) {
+    if keyboard.just_released(KeyCode::KeyW) {
         controller.0.player.gear_up()
     }
-    if keyboard_input.just_released(KeyCode::KeyS) {
+    if keyboard.just_released(KeyCode::KeyS) {
         controller.0.player.gear_down()
     }
 
-    if let Some(cursor_world_position) = window
-        .cursor_position()
-        .and_then(|cursor| {
-            camera.viewport_to_world(&GlobalTransform::from(camera_transform.clone()), cursor)
-        })
-        .map(|ray| ray.origin.truncate())
-    {
-        if keyboard_input.pressed(KeyCode::Digit1) {
-            let range = if shift_pressed {-5..=5} else {0..=0};
+    if let Some(cursor_world_position) = window.cursor_position().and_then(|cursor| {
+        camera.viewport_to_world_2d(&GlobalTransform::from(camera_transform.clone()), cursor)
+    }) {
+        if keyboard.pressed(KeyCode::Digit1) {
+            let range = if shift_pressed { -5..=5 } else { 0..=0 };
             for i in range {
-                let pos = cursor_world_position + 2.*PARTICLE_RADIUS * i as f32;
+                let pos = cursor_world_position + 2. * PARTICLE_RADIUS * i as f32;
                 client.0.send_packet(GamePacket::Spawn(pos));
             }
         }
 
-        if keyboard_input.just_released(KeyCode::Digit3) {
-            client.0.send_packet(GamePacket::Tank(cursor_world_position));
+        if keyboard.just_released(KeyCode::Digit3) {
+            client
+                .0
+                .send_packet(GamePacket::Tank(cursor_world_position));
         }
     }
 }
@@ -176,7 +200,7 @@ fn main() {
     if args.len() < 1 {
         warn!("provide an ip of the server as a command line argument");
     }
-    
+
     let addr = &args[1];
     let client = TcpClient::<GamePacket, PACKET_SIZE>::new(addr);
 

@@ -25,6 +25,7 @@ Use this app to create maps for SMOG.
 - **RIGHT MOUSE CLICK** on a spawn: Remove the selected spawn
 
 ### Map Controls
+- **Drag and Drop** a *.smoge* file: Load map from the file
 - **ENTER**: Bake the map (update random connections between particles in solid layers)
 - Hold **SPACE**: Apply physics
 - **TAB**: Restart the simulation without updating the map
