@@ -314,7 +314,7 @@ pub mod constructor {
 pub mod map {
     use std::path::{Path, PathBuf};
 
-    use bevy::math::Vec2;
+    use bevy::{asset::{AssetServer, Handle}, math::Vec2, prelude::Image};
     use serde::{Deserialize, Serialize};
     use solver::{particle::Particle, Connection, Constraint, Solver};
 
@@ -361,6 +361,29 @@ pub mod map {
 
         pub fn deserialize(bytes: &[u8]) -> Self {
             postcard::from_bytes(bytes).unwrap()
+        }
+    }
+
+    pub struct MapLoader {
+        pub map: Map,
+        pub textures: Vec<Handle<Image>>, 
+    }
+
+    impl MapLoader {
+        pub fn init_from_file<P: AsRef<Path> + Clone>(name: &str, base_path: P, asset_server: &AssetServer) -> Self {
+            let mut map_path = PathBuf::from(base_path.as_ref());
+            map_path.push(name);
+            map_path.push("map.smog");
+            let map_bytes = std::fs::read(&map_path)
+                .expect(&format!{"Map {map_path:?} not found"});
+            let map = Map::deserialize(&map_bytes);
+            let textures = map.texture_paths(base_path).into_iter()
+                .map(|path| asset_server.load(path))
+                .collect();
+            Self {
+                map,
+                textures
+            }
         }
     }
 }

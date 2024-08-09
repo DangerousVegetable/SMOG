@@ -76,7 +76,7 @@ pub mod server {
                                     .await
                                     .expect("Unable to write map");
 
-                                info!("{name} joined the game on: {:?}", socket.peer_addr().unwrap());
+                                info!("{name} joined the game from: {}", socket.peer_addr().unwrap());
                                 Ok(Player::new(id, name, socket))
                             });
                             
@@ -160,7 +160,8 @@ pub mod server {
                             match player.stream.try_read(&mut packet) {
                                 Ok(0) => {
                                     warn!(
-                                        "Client {} seems to have disconnected. Closing connection",
+                                        "Player {} ({}) seems to have disconnected. Closing connection",
+                                        player.name,
                                         player.stream.peer_addr().unwrap()
                                     );
                                     break;

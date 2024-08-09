@@ -12,6 +12,7 @@ use bevy::{
     window::PrimaryWindow,
 };
 
+use map_editor::map::MapLoader;
 use solver::Solver;
 use solver::{particle, PARTICLE_RADIUS};
 
@@ -30,12 +31,10 @@ const SUB_TICKS: usize = 8;
 #[derive(Component)]
 struct GameController(Controller);
 
-fn setup(mut commands: Commands, client: Res<Client>) {
-    let solver = Solver::new(
-        solver::Constraint::Box(vec2(-300., -50.), vec2(300., 150.)),
-        &[],
-        &[],
-    );
+fn setup_simulation(mut commands: Commands, client: Res<Client>, asset_server: Res<AssetServer>) {
+    let map_loader = MapLoader::init_from_file(&client.0.map, "assets/maps", &asset_server);
+    let solver = map_loader.map.solver();
+
     let simulation = RenderedSimulation(solver);
     let (bl, tr) = simulation.0.constraint.bounds();
     let projection = OrthographicProjection {
@@ -153,7 +152,7 @@ fn control_system(
         client.0.send_packets(&controller.0.move_player(1.));
     } else if keyboard.pressed(KeyCode::KeyD) {
         client.0.send_packets(&controller.0.move_player(-1.));
-    } else {
+    } else if keyboard.just_released(KeyCode::KeyA) || keyboard.just_released(KeyCode::KeyD) {
         client.0.send_packets(&controller.0.move_player(0.));
     }
     if keyboard.just_released(KeyCode::KeyW) {
@@ -182,20 +181,25 @@ fn control_system(
     }
 }
 
+fn lobby_system(mut client: ResMut<Client>, mut next_state: ResMut<NextState<GameState>>) {
+    if client.0.game_started() {
+        next_state.set(GameState::InGame);
+        client.0.run();
+    }
+}
+
 #[derive(Resource)]
 struct Client(GameClient<GamePacket, PACKET_SIZE>);
 
-//pub fn establish_connection(mut commands: Commands) {
-//    let client = TcpClient::<GamePacket, PACKET_SIZE>::new("127.0.0.1:8080");
-//    commands.insert_resource(Client(client));
-//}
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, States)]
+enum GameState {
+    #[default]
+    Menu,
+    InLobby,
+    InGame,
+}
 
 fn main() {
-    //rayon::ThreadPoolBuilder::new()
-    //    .num_threads(10)
-    //    .build_global()
-    //    .unwrap();
-
     const PHYSICS_UPDATE_TIME: u64 = 1000000000 / 64;
 
     let args: Vec<_> = std::env::args().collect();
@@ -204,19 +208,19 @@ fn main() {
     }
 
     let addr = &args[1];
-    let client = GameClient::<GamePacket, PACKET_SIZE>::new(addr, "test".to_string());
+    let default_name = "player".to_string();
+    let name = args.get(2).unwrap_or(&default_name);
+    let client = GameClient::<GamePacket, PACKET_SIZE>::new(addr, name.clone());
 
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(RenderSimulationPlugin)
         .insert_resource(Client(client))
-        //.insert_resource(Time::<Fixed>::from_duration(Duration::from_nanos(
-        //    PHYSICS_UPDATE_TIME,
-        //)))
-        //.add_systems(PreStartup, establish_connection)
-        .add_systems(Startup, setup)
-        .add_systems(Update, update_physics)
-        .add_systems(Update, update_sprites)
-        .add_systems(Update, control_system)
+        .insert_state(GameState::InLobby)
+        .add_systems(Update, lobby_system.run_if(in_state(GameState::InLobby)))
+        .add_systems(OnEnter(GameState::InGame), setup_simulation)
+        .add_systems(
+            Update, 
+            (update_physics, update_sprites, control_system).run_if(in_state(GameState::InGame)))
         .run();
 }
