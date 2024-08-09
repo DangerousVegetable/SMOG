@@ -29,7 +29,7 @@ use map_editor::serde::SerdeMapConstructor;
 use text_io::{read, try_read};
 
 use map_editor::constructor::{self, MapConstructor};
-use smog::render::{
+use render::{
     RenderSimulationPlugin, RenderedSimulation, SimulationCamera, SimulationTextures,
 };
 use solver::{Link, Solver};

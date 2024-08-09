@@ -2734,8 +2734,8 @@ dependencies = [
  "image",
  "postcard",
  "rand",
+ "render",
  "serde",
- "smog",
  "solver",
  "text_io",
 ]
@@ -3319,6 +3319,12 @@ dependencies = [
 [[package]]
 name = "packet-tools"
 version = "0.1.0"
+dependencies = [
+ "bevy",
+ "postcard",
+ "serde",
+ "tokio",
+]
 
 [[package]]
 name = "parking"
@@ -3725,6 +3731,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a66a03ae7c801facd77a29370b4faec201768915ac14a721ba36f20bc9c209b"
 
 [[package]]
+name = "render"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bytemuck",
+ "solver",
+ "wgpu",
+]
+
+[[package]]
 name = "renderdoc-sys"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3886,6 +3902,7 @@ dependencies = [
  "crossbeam-channel",
  "env_logger",
  "log",
+ "map-editor",
  "packet-tools",
  "tokio",
 ]
@@ -3958,13 +3975,13 @@ name = "smog"
 version = "0.1.0"
 dependencies = [
  "bevy",
- "bytemuck",
  "crossbeam-channel",
+ "map-editor",
  "packet-tools",
+ "render",
  "server",
  "solver",
  "tokio",
- "wgpu",
 ]
 
 [[package]]

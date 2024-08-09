@@ -1,6 +1,7 @@
+use log::{error, info, warn};
+use packet_tools::game_packets::PACKET_SIZE;
+use server::server::{GameServer, LobbyServer};
 use std::time::Duration;
-use log::{error, warn};
-use server::{tcp::TcpSyncServer, PACKET_SIZE};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -13,37 +14,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args().collect();
     if args.len() < 1 {
         error!("Provide an ip of the server as a command line argument");
-        return Ok(())
+        return Ok(());
     }
 
     let addr = &args[1];
 
-    let mut server = TcpSyncServer::new(
-        addr, 
+    let lobby_server = LobbyServer::new(addr).await?;
+    info!("Press enter to start the lobby");
+
+    let mut input = String::new();
+    let _ = std::io::stdin().read_line(&mut input);
+
+    let mut server = GameServer::new(
+        lobby_server.get_lobby().await,
         Duration::from_nanos(2300000), // 2.3ms per PHYSICS TICK ~ 55 fps client
-        16
-    ).await?;
-    
-    server.accept_connections();
+        16,
+    )
+    .await;
+
+    server.run::<PACKET_SIZE>().await;
+
     loop {
         let mut input_text = String::new();
         std::io::stdin()
             .read_line(&mut input_text)
             .expect("failed to read from stdin");
 
-        if input_text.starts_with("run") {
-            server.decline_connections();
-            std::thread::sleep(Duration::from_millis(100));
-            server.run::<PACKET_SIZE>();
-        }
-
         if input_text.starts_with("stop") {
-            server.stop();
             break;
         }
     }
-    
+
     Ok(())
 }
-
-

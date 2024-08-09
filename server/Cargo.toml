@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 packet-tools = {path = "../packet-tools"}
+map-editor = {path = "../map-editor"}
 tokio = { version = "1.39.2", features = ["full"] }
 log = { version = "0.4.22"}
 env_logger = "0.11.5"

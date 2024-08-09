@@ -1,8 +1,9 @@
 use bevy::{log::error, math::{vec2, Vec2}};
-use packet_tools::{IndexedPacket, Packet};
-pub use server::PACKET_SIZE;
 
-pub type IndexedGamePacket = IndexedPacket<GamePacket, PACKET_SIZE>;
+use crate::{IndexedPacket, Packet};
+
+pub const PACKET_SIZE: usize = 9;
+pub type IndexedGamePacket = IndexedPacket<GamePacket, {PACKET_SIZE}>;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GamePacket {
@@ -12,7 +13,7 @@ pub enum GamePacket {
     Tank(Vec2),
 }
 
-impl Packet<PACKET_SIZE> for GamePacket {
+impl Packet<{PACKET_SIZE}> for GamePacket {
     fn to_bytes(&self) -> [u8; PACKET_SIZE] {
         let mut bytes = vec![];
         match self {

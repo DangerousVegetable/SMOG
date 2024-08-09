@@ -5,10 +5,10 @@ edition = "2021"
 
 [dependencies]
 bevy = "0.14.0"
-bytemuck = "1.16.1"
-wgpu = "0.20.1"
 tokio = { version = "1.39.2", features = ["full"] }
 crossbeam-channel = "0.5.13"
-packet-tools = {path = "../packet-tools"}
-server = {path = "../server"}
-solver = {path = "../solver"}
+packet-tools = { path = "../packet-tools" }
+server = { path = "../server" }
+solver = { path = "../solver" }
+render = { path = "../render" }
+map-editor = { path = "../map-editor" }

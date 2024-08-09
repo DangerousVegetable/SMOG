@@ -1,14 +1,17 @@
-use std::{sync::Arc};
+use std::sync::Arc;
 
-use tokio::{ io::AsyncReadExt, net::{TcpStream, ToSocketAddrs}, runtime::Runtime, task::JoinHandle};
+use bevy::log::info;
+use server::lobby::Player;
+use tokio::{net::{TcpStream, ToSocketAddrs}, runtime::Runtime, task::JoinHandle};
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
 
-use packet_tools::{IndexedPacket, Packet};
-pub struct TcpClient<P, const SIZE: usize> 
+use packet_tools::{client_packets::ClientPacket, server_packets::ServerPacket, IndexedPacket, Packet, UnsizedPacketRead, UnsizedPacketWrite};
+pub struct GameClient<P, const SIZE: usize> 
 where P: Packet<SIZE>
 {
     pub id: u8,
+    pub name: String,
     runtime: Runtime,
     stream: Arc<TcpStream>,
     send_channel: Sender<P>,
@@ -18,10 +21,10 @@ where P: Packet<SIZE>
     stop_channel: Sender<()>,
 }
 
-impl<P, const SIZE: usize> TcpClient<P, SIZE> 
+impl<P, const SIZE: usize> GameClient<P, SIZE> 
 where P: Packet<SIZE> + std::fmt::Debug
 {
-    pub fn new<A>(addr: A) -> Self
+    pub fn new<A>(addr: A, name: String) -> Self
     where A: ToSocketAddrs
     {
         let rt = tokio::runtime::Builder::new_multi_thread()
@@ -29,13 +32,13 @@ where P: Packet<SIZE> + std::fmt::Debug
             .build()
             .expect("Could not build tokio runtime");
 
-        let (stream, id) = rt.block_on(async {
-            let stream = TcpStream::connect(addr).await.unwrap();
-            let mut buf = [0; 1];
-            stream.readable().await.unwrap();
-            stream.try_read(&mut buf).unwrap();
-            let id = buf[0];
-            (stream, id)
+        let (id, name, stream) = rt.block_on(async {
+            let mut stream = TcpStream::connect(addr).await.unwrap();
+            stream.write_packet(&ClientPacket::SetName(name.clone())).await.unwrap();
+            let ServerPacket::SetId(id) = stream.read_packet().await.unwrap() else {panic!("Authentication error!")};
+            let ServerPacket::SetMap(_map_name) = stream.read_packet().await.unwrap() else {panic!("Authentication error!")};
+            //println!("Lobby map: {_map_name}");
+            (id, name, stream)
         });
         let stream = Arc::new(stream);
         let (stop_channel, stop_reader) = unbounded();
@@ -71,7 +74,7 @@ where P: Packet<SIZE> + std::fmt::Debug
                         break;
                     }
                     Ok(n) => {
-                        let (packets, res_len) = packet_tools::deserialize_packets(&mut buf[..buf_start+n]);
+                        let (packets, res_len) = packet_tools::deserialize_queue(&mut buf[..buf_start+n]);
                         buf_start = res_len;
                         if buf_start > buf.len() / 2 {
                             buf.extend((0..buf.len()).into_iter().map(|_| 0));
@@ -93,6 +96,7 @@ where P: Packet<SIZE> + std::fmt::Debug
 
         Self {
             id,
+            name,
             runtime: rt,
             stream,
             send_channel,
@@ -137,7 +141,7 @@ where P: Packet<SIZE> + std::fmt::Debug
     }
 } 
 
-impl<P, const SIZE: usize> Drop for TcpClient<P, SIZE> 
+impl<P, const SIZE: usize> Drop for GameClient<P, SIZE> 
 where P: Packet<SIZE>
 {
     fn drop(&mut self) {

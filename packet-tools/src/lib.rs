@@ -1,6 +1,15 @@
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
+use serde::{Deserialize, Serialize};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpStream};
+
+pub mod game_packets;
+pub mod client_packets;
+pub mod server_packets;
+
+pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 pub trait Packet<const SIZE: usize>: Clone + Copy + Send + Sync + 'static + std::fmt::Debug {
     fn to_bytes(&self) -> [u8; SIZE];
     fn from_bytes(value: &[u8; SIZE]) -> Self;
@@ -41,7 +50,7 @@ impl<P: Packet<SIZE>, const SIZE: usize> IndexedPacket<P, SIZE> {
     }
 }
 
-pub fn serialize_packets<P: Packet<SIZE>, const SIZE: usize>(
+pub fn serialize_queue<P: Packet<SIZE>, const SIZE: usize>(
     packets: &Vec<Vec<IndexedPacket<P, SIZE>>>,
 ) -> Vec<u8> {
     let mut bytes = Vec::new();
@@ -52,7 +61,7 @@ pub fn serialize_packets<P: Packet<SIZE>, const SIZE: usize>(
     bytes
 }
 
-pub fn deserialize_packets<P: Packet<SIZE>, const SIZE: usize>(
+pub fn deserialize_queue<P: Packet<SIZE>, const SIZE: usize>(
     bytes: &mut [u8],
 ) -> (Vec<Vec<IndexedPacket<P, SIZE>>>, usize) {
     let mut result = Vec::new();
@@ -81,6 +90,53 @@ pub fn deserialize_packets<P: Packet<SIZE>, const SIZE: usize>(
     }
     (result, res_len)
 }
+
+pub trait UnsizedPacket: Clone + Serialize + for<'a> Deserialize<'a> {
+    fn to_bytes(&self) -> Vec<u8> {
+        postcard::to_stdvec(self).unwrap()
+    }
+    fn from_bytes(bytes: &[u8]) -> Self {
+        postcard::from_bytes(bytes).unwrap()
+    }
+
+    fn as_packet(&self) -> Vec<u8> {
+        let bytes = self.to_bytes();
+        let mut packet = vec![];
+        packet.extend(u32::to_be_bytes(bytes.len() as u32).into_iter());
+        packet.extend(bytes.into_iter());
+        packet
+    }
+
+    fn from_packet(bytes: &[u8]) -> Self {
+        let len = u32::from_be_bytes(bytes[0..4].try_into().unwrap()) as usize;
+        Self::from_bytes(&bytes[4..len])
+    }
+}
+
+pub trait UnsizedPacketRead: AsyncReadExt + Unpin {
+    fn read_packet<P: UnsizedPacket>(&mut self) -> impl std::future::Future<Output = tokio::io::Result<P>> {
+        async {
+            let len = self.read_u32().await? as usize;
+            let mut bytes = vec![0; len];
+            self.read_exact(&mut bytes).await?;
+            Ok(P::from_bytes(&bytes))
+        }
+    }
+}
+
+pub trait UnsizedPacketWrite: AsyncWriteExt + Unpin {
+    fn write_packet<P: UnsizedPacket>(&mut self, packet: &P) -> impl std::future::Future<Output = tokio::io::Result<()>> {
+        async {
+            let bytes = P::as_packet(packet); 
+            self.write_all(&bytes).await?;
+            Ok(())
+        }
+    }
+}
+
+impl UnsizedPacketRead for TcpStream {}
+impl UnsizedPacketWrite for TcpStream {}
+
 
 pub struct TimedQueue<P> {
     pub queue: VecDeque<Vec<P>>,

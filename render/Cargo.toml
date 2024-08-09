@@ -1,0 +1,10 @@
+[package]
+name = "render"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = "0.14.0"
+bytemuck = "1.16.1"
+wgpu = "0.20.1"
+solver = {path = "../solver"}

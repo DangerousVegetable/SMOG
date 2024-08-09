@@ -324,7 +324,7 @@ pub mod map {
         pub team: usize,
     }
 
-    #[derive(Serialize, Deserialize)]
+    #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct Map {
         pub name: String,
         pub constraint: Constraint,

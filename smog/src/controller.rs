@@ -1,6 +1,6 @@
 use bevy::math::{vec2, Vec2};
 
-use crate::{network::packets::{GamePacket, IndexedGamePacket}};
+use packet_tools::game_packets::{GamePacket, IndexedGamePacket};
 
 use solver::{particle::{Kind, Particle, GROUND}, Solver};
 

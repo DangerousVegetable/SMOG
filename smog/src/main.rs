@@ -15,10 +15,12 @@ use bevy::{
 use solver::Solver;
 use solver::{particle, PARTICLE_RADIUS};
 
-use smog::render::{RenderSimulationPlugin, RenderedSimulation, SimulationCamera};
+use render::{RenderSimulationPlugin, RenderedSimulation, SimulationCamera};
 
 mod network;
-use network::{client::TcpClient, packets::GamePacket, packets::PACKET_SIZE};
+use network::{client::GameClient};
+
+use packet_tools::{game_packets::{GamePacket, PACKET_SIZE}};
 
 mod controller;
 use controller::Controller;
@@ -181,12 +183,12 @@ fn control_system(
 }
 
 #[derive(Resource)]
-struct Client(TcpClient<GamePacket, PACKET_SIZE>);
+struct Client(GameClient<GamePacket, PACKET_SIZE>);
 
-pub fn establish_connection(mut commands: Commands) {
-    let client = TcpClient::<GamePacket, PACKET_SIZE>::new("127.0.0.1:8080");
-    commands.insert_resource(Client(client));
-}
+//pub fn establish_connection(mut commands: Commands) {
+//    let client = TcpClient::<GamePacket, PACKET_SIZE>::new("127.0.0.1:8080");
+//    commands.insert_resource(Client(client));
+//}
 
 fn main() {
     //rayon::ThreadPoolBuilder::new()
@@ -202,7 +204,7 @@ fn main() {
     }
 
     let addr = &args[1];
-    let client = TcpClient::<GamePacket, PACKET_SIZE>::new(addr);
+    let client = GameClient::<GamePacket, PACKET_SIZE>::new(addr, "test".to_string());
 
     App::new()
         .add_plugins(DefaultPlugins)
