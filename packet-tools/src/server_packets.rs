@@ -5,7 +5,8 @@ use crate::UnsizedPacket;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ServerPacket {
     SetMap(String),
-    UploadFile { name: String, contents: Vec<u8> },
+    CreateFile { name: String, contents: Vec<u8> },
+    SetPlayers(Vec<(u8, String)>),
     SetId(u8),
     StartGame,
 }

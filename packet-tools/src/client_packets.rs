@@ -6,6 +6,7 @@ use crate::UnsizedPacket;
 pub enum ClientPacket {
     SetName(String),
     RequestMap,
+    Ok,
 }
 
 impl UnsizedPacket for ClientPacket {}

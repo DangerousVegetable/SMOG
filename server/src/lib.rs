@@ -17,6 +17,7 @@ pub mod lobby {
 }
 
 pub mod server {
+    use common::{BACKGROUND_FILE, MAP_FILE, RELATIVE_MAPS_PATH};
     use log::{error, info, trace, warn};
     use map_editor::map::Map as GameMap;
     use packet_tools::{
@@ -24,7 +25,9 @@ pub mod server {
         UnsizedPacketRead, UnsizedPacketWrite,
     };
     use std::{
-        sync::{atomic::AtomicBool, Arc, Mutex}, time::Duration
+        path::PathBuf,
+        sync::{atomic::AtomicBool, Arc, Mutex},
+        time::Duration,
     };
     use tokio::{
         self,
@@ -43,9 +46,11 @@ pub mod server {
     }
 
     impl LobbyServer {
-        pub async fn new<A: ToSocketAddrs>(addr: A) -> Result<Self> {
+        pub async fn new<A: ToSocketAddrs>(addr: A, map: &str) -> Result<Self> {
             let listener = TcpListener::bind(addr).await?;
             let accept_players = Arc::new(AtomicBool::new(true));
+
+            let map = GameMap::init_from_file(&map, RELATIVE_MAPS_PATH);
 
             let running = accept_players.clone();
             let lobby_task: JoinHandle<Lobby> = tokio::spawn(async move {
@@ -54,13 +59,13 @@ pub mod server {
                     listener.local_addr().unwrap()
                 );
                 let mut connections = vec![];
-
                 while running.load(std::sync::atomic::Ordering::Relaxed) {
                     tokio::select! {
                         socket = listener.accept() => {
                             let Ok((mut socket, _)) = socket else { continue; };
 
                             let id = connections.len() as u8;
+                            let map = map.clone();
                             let connection_task = tokio::spawn(async move {
                                 let name_packet: ClientPacket =
                                     socket.read_packet().await.expect("Corrupted packet");
@@ -70,16 +75,49 @@ pub mod server {
                                 socket
                                     .write_packet(&ServerPacket::SetId(id))
                                     .await
-                                    .expect("Unable to write id");
+                                    .expect("Unable to send id");
                                 socket
-                                    .write_packet(&ServerPacket::SetMap("default".to_string()))
+                                    .write_packet(&ServerPacket::SetMap(map.name.clone()))
                                     .await
-                                    .expect("Unable to write map");
+                                    .expect("Unable to send map");
+                                let map_packet: ClientPacket = socket.read_packet().await.expect("Corrupted packet");
+                                match map_packet {
+                                    ClientPacket::RequestMap => {
+                                        let mut map_path = PathBuf::from(RELATIVE_MAPS_PATH);
+                                        map_path.push(&map.name);
+                                        map_path.push(MAP_FILE);
+                                        let map_contents = tokio::fs::read(&map_path).await
+                                            .expect("Could not read map file");
+                                        socket.write_packet(&ServerPacket::CreateFile {name: MAP_FILE.to_string(), contents: map_contents}).await
+                                            .expect("Unable to send map file");
+                                        let texture_paths = map.texture_paths(RELATIVE_MAPS_PATH);
+                                        for texture_path in texture_paths.into_iter() {
+                                            let texture_contents = tokio::fs::read(&texture_path).await
+                                                .expect("Could not read texture");
+                                            let texture_name = texture_path.file_name().unwrap().to_owned().into_string().unwrap();
+                                            socket.write_packet(&ServerPacket::CreateFile {
+                                                name: texture_name, 
+                                                contents: texture_contents}).await
+                                                .expect("Could not send texture");
+                                        }
+                                        if let Some(background_path) = map.background_path(RELATIVE_MAPS_PATH) {
+                                            let background_contents = tokio::fs::read(&background_path).await
+                                                .expect("Could not read background");
+                                            socket.write_packet(&ServerPacket::CreateFile {
+                                                name: BACKGROUND_FILE.to_string(), 
+                                                contents: background_contents}).await
+                                                .expect("Could not send background");
+                                        }
+
+                                        info!("Map successfully sent to {name} ({})", socket.peer_addr().unwrap())
+                                    }
+                                    _ => (),
+                                }
 
                                 info!("{name} joined the game from: {}", socket.peer_addr().unwrap());
                                 Ok(Player::new(id, name, socket))
                             });
-                            
+
                             connections.push(connection_task);
                         },
                         _ = sleep(Duration::from_millis(100)) => {
@@ -135,7 +173,8 @@ pub mod server {
         }
 
         pub async fn run<const PACKET_SIZE: usize>(&mut self) {
-            self.running.store(true, std::sync::atomic::Ordering::Relaxed);
+            self.running
+                .store(true, std::sync::atomic::Ordering::Relaxed);
             for player in self.players.iter_mut() {
                 // player is borrowed only once therefore this line won't panic
                 let player = Arc::get_mut(player).unwrap();
@@ -230,7 +269,8 @@ pub mod server {
         }
 
         pub fn stop(&mut self) {
-            self.running.store(false, std::sync::atomic::Ordering::Relaxed);
+            self.running
+                .store(false, std::sync::atomic::Ordering::Relaxed);
             self.listen_tasks.iter_mut().for_each(|task| {
                 task.take().map(|c| c.abort());
             });
@@ -246,5 +286,3 @@ pub mod server {
         }
     }
 }
-
-

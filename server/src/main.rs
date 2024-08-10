@@ -18,8 +18,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let addr = &args[1];
+    let map = "default".to_string();
+    let map = args.get(2).unwrap_or(&map);
 
-    let lobby_server = LobbyServer::new(addr).await?;
+    let lobby_server = LobbyServer::new(addr, map).await?;
     info!("Press enter to start the lobby");
 
     let mut input = String::new();

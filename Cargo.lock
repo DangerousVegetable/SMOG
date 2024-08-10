@@ -1547,6 +1547,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "common"
+version = "0.1.0"
+
+[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2731,6 +2735,7 @@ name = "map-editor"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "common",
  "image",
  "postcard",
  "rand",
@@ -3899,6 +3904,7 @@ dependencies = [
 name = "server"
 version = "0.1.0"
 dependencies = [
+ "common",
  "crossbeam-channel",
  "env_logger",
  "log",
@@ -3975,6 +3981,7 @@ name = "smog"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "common",
  "crossbeam-channel",
  "map-editor",
  "packet-tools",

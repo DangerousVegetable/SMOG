@@ -23,15 +23,14 @@ use bevy::{
     DefaultPlugins,
 };
 
+use common::RELATIVE_MAPS_PATH;
 use image::RgbaImage;
 use map_editor::map::{Map, Spawn};
 use map_editor::serde::SerdeMapConstructor;
 use text_io::{read, try_read};
 
 use map_editor::constructor::{self, MapConstructor};
-use render::{
-    RenderSimulationPlugin, RenderedSimulation, SimulationCamera, SimulationTextures,
-};
+use render::{RenderSimulationPlugin, RenderedSimulation, SimulationCamera, SimulationTextures};
 use solver::{Link, Solver};
 
 #[derive(Component)]
@@ -43,8 +42,8 @@ struct TextureColumn;
 #[derive(Component)]
 enum ButtonAction {
     AddTexture,
+    AddBackground,
     RemoveTexture(Entity, Handle<Image>),
-    //RemoveSpawn(Entity, Spawn)
 }
 
 #[derive(Component)]
@@ -214,6 +213,17 @@ fn setup_ui(mut commands: Commands, textures: Res<SimulationTextures>) {
                     ..default()
                 })
                 .with_children(|parent| {
+                    // Add background button
+                    parent
+                        .spawn(button.clone())
+                        .with_children(|parent| {
+                            parent.spawn(TextBundle {
+                                text: Text::from_section("Add background", text_style.clone()),
+                                ..default()
+                            });
+                        })
+                        .insert(ButtonAction::AddBackground);
+
                     // Add texture button
                     parent
                         .spawn(button.clone())
@@ -320,12 +330,12 @@ fn button_system(
         if *interaction == Interaction::Pressed {
             match button_action {
                 ButtonAction::AddTexture => {
-                    if *state == AppState::Main {
-                        *background_color = PRESSED_BUTTON.into();
-                        next_state.set(AppState::PendingTexture(None));
-                    } else {
+                    if let AppState::PendingTexture(_) = state.get() {
                         *background_color = NORMAL_BUTTON.into();
                         next_state.set(AppState::Main);
+                    } else {
+                        *background_color = PRESSED_BUTTON.into();
+                        next_state.set(AppState::PendingTexture(None));
                     }
                 }
                 ButtonAction::RemoveTexture(button, handle) => {
@@ -336,8 +346,23 @@ fn button_system(
                     commands.entity(*button).despawn_recursive();
                     commands.insert_resource(SimulationTextures {
                         textures: constructor.0.textures.clone(),
+                        background: constructor.0.background.clone(),
                     });
                     info!("Texture removed!");
+                }
+                ButtonAction::AddBackground => {
+                    if let AppState::PendingBackground(_) = state.get() {
+                        constructor.0.background = None;
+                        commands.insert_resource(SimulationTextures {
+                            textures: constructor.0.textures.clone(),
+                            background: constructor.0.background.clone(),
+                        });
+                        *background_color = NORMAL_BUTTON.into();
+                        next_state.set(AppState::Main);
+                    } else if let AppState::Main = state.get() {
+                        *background_color = PRESSED_BUTTON.into();
+                        next_state.set(AppState::PendingBackground(None));
+                    }
                 }
             }
         }
@@ -424,6 +449,11 @@ fn drag_and_drop_system(
                 info!("Loading texture: {:?}", img.path());
                 next_state.set(AppState::PendingTexture(Some(img)));
             }
+            AppState::PendingBackground(None) => {
+                let img: Handle<Image> = asset_server.load(AssetPath::from_path(path_buf));
+                info!("Loading background: {:?}", img.path());
+                next_state.set(AppState::PendingBackground(Some(img)));
+            }
             _ => (),
         }
     }
@@ -505,6 +535,7 @@ fn check_assets_system(
             constructor.0.textures.push(handle.clone());
             commands.insert_resource(SimulationTextures {
                 textures: constructor.0.textures.clone(),
+                background: constructor.0.background.clone(),
             });
             info!("Texture added!");
 
@@ -518,12 +549,25 @@ fn check_assets_system(
                 next_state.set(AppState::Main);
                 commands.insert_resource(SimulationTextures {
                     textures: constructor.0.textures.clone(),
+                    background: constructor.0.background.clone(),
                 });
                 for handle in textures {
                     add_texture_button(&mut commands, handle, column);
                 }
                 info!("Textures added!");
             }
+        }
+        AppState::PendingBackground(Some(handle)) => {
+            let Some(_) = image_assets.get(handle) else {
+                return;
+            };
+            constructor.0.background = Some(handle.clone());
+            commands.insert_resource(SimulationTextures {
+                textures: constructor.0.textures.clone(),
+                background: constructor.0.background.clone(),
+            });
+            next_state.set(AppState::Main);
+            info!("Background added!");
         }
         _ => (),
     }
@@ -777,13 +821,25 @@ fn control_system(
 }
 
 fn save_textures(map: &Map, textures: Vec<Image>) {
-    let texture_paths = map.texture_paths("assets/maps");
+    let texture_paths = map.texture_paths(RELATIVE_MAPS_PATH);
     for (i, texture) in textures.into_iter().enumerate() {
         let image: RgbaImage = texture.try_into_dynamic().unwrap().to_rgba8();
         image
             .save(&texture_paths[i])
             .expect("Error while saving texture");
     }
+}
+
+fn save_background(map: &Map, background: Option<Image>) {
+    let Some(background_path) = map.background_path(RELATIVE_MAPS_PATH) else {
+        return;
+    };
+    background.map(|background| {
+        let image: RgbaImage = background.try_into_dynamic().unwrap().to_rgba8();
+        image
+            .save(&background_path)
+            .expect("Error while saving background");
+    });
 }
 
 fn save_map(constructor: &mut MapConstructor, image_assets: &Assets<Image>) {
@@ -794,15 +850,22 @@ fn save_map(constructor: &mut MapConstructor, image_assets: &Assets<Image>) {
         .iter()
         .map(|handle| image_assets.get(handle).unwrap().clone())
         .collect();
+    let background: Option<Image> = constructor
+        .background
+        .as_ref()
+        .map(|handle| image_assets.get(handle).unwrap().clone());
 
     IoTaskPool::get()
         .spawn(async move {
-            let mut base_path = PathBuf::from("assets/maps");
+            let mut base_path = PathBuf::from(RELATIVE_MAPS_PATH);
             base_path.push(&map.name);
             fs::create_dir_all(&base_path).expect("Error while creating map directory");
 
             save_textures(&map, textures);
             info!("Textures saved!");
+
+            save_background(&map, background);
+            info!("Background saved!");
 
             base_path.push("map.smog");
             File::create(&base_path)
@@ -826,6 +889,7 @@ enum AppState {
     PendingTexture(Option<Handle<Image>>),
     PendingImage(Option<Handle<Image>>),
     PendingTextures(Vec<Handle<Image>>),
+    PendingBackground(Option<Handle<Image>>),
 }
 
 fn main() {

@@ -1,5 +1,5 @@
 [workspace]
-members = ["smog", "packet-tools", "server", "map-editor", "solver", "render"]
+members = ["smog", "packet-tools", "server", "map-editor", "solver", "render", "common"]
 resolver = "2"
 
 [workspace.dependencies]

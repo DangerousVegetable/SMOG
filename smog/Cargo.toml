@@ -12,3 +12,4 @@ server = { path = "../server" }
 solver = { path = "../solver" }
 render = { path = "../render" }
 map-editor = { path = "../map-editor" }
+common = { path = "../common" }

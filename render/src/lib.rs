@@ -12,7 +12,7 @@ use bevy::{
             SystemParamItem,
         },
     },
-    math::{vec3, FloatOrd, Vec3A},
+    math::{vec2, vec3, FloatOrd, Vec3A},
     prelude::*,
     render::{
         camera::{CameraProjection, ExtractedCamera}, extract_component::{ExtractComponent, ExtractComponentPlugin}, primitives::Aabb, render_asset::RenderAssets, render_phase::{
@@ -20,8 +20,14 @@ use bevy::{
             RenderCommand, RenderCommandResult, SetItemPipeline, TrackedRenderPass,
             ViewBinnedRenderPhases, ViewSortedRenderPhases,
         }, render_resource::{
-            binding_types::{sampler, texture_2d}, BindGroup, BindGroupEntries, BindGroupLayout, BindGroupLayoutEntries, Buffer, BufferUsages, ColorTargetState, ColorWrites, CompareFunction, DepthStencilState, FragmentState, IndexFormat, MultisampleState, PipelineCache, PrimitiveState, RawBufferVec, RenderPipelineDescriptor, SpecializedRenderPipeline, SpecializedRenderPipelines, TextureFormat, VertexAttribute, VertexBufferLayout, VertexFormat, VertexState, VertexStepMode
-        }, renderer::{RenderDevice, RenderQueue}, texture::{BevyDefault as _, GpuImage}, view::{self, ExtractedView, ViewUniforms, VisibilitySystems, VisibleEntities}, MainWorld, Render, RenderApp, RenderSet
+            binding_types::{sampler, texture_2d},
+            BindGroup, BindGroupEntries, BindGroupLayout, BindGroupLayoutEntries, Buffer,
+            BufferUsages, ColorTargetState, ColorWrites, CompareFunction, DepthStencilState,
+            FragmentState, IndexFormat, MultisampleState, PipelineCache, PrimitiveState,
+            RawBufferVec, RenderPipelineDescriptor, SpecializedRenderPipeline,
+            SpecializedRenderPipelines, TextureFormat, VertexAttribute, VertexBufferLayout,
+            VertexFormat, VertexState, VertexStepMode,
+        }, renderer::{RenderDevice, RenderQueue}, texture::{BevyDefault as _, GpuImage}, view::{self, ExtractedView, ViewUniforms, VisibilitySystems, VisibleEntities}, Extract, MainWorld, Render, RenderApp, RenderSet
     },
 };
 
@@ -120,6 +126,9 @@ struct SimulationBuffers {
     textures_bind_group: BindGroup,
 }
 
+#[derive(Component)]
+struct SimulationBackground;
+
 /// The custom draw commands that Bevy executes for each entity we enqueue into
 /// the render phase.
 type DrawSimulationCommands = (SetItemPipeline, DrawSimulation);
@@ -134,13 +143,36 @@ impl ExtractComponent for RenderedSimulation {
     }
 }
 
+fn update_simulation_background(
+    mut commands: Commands,
+    query: Query<(Entity, &RenderedSimulation), Without<SimulationBackground>>,
+) {
+    for (entity, simulation) in &query {
+        let (bl, tr) = simulation.0.constraint.bounds();
+        let size = vec2(tr.x - bl.x, tr.y - bl.y);
+        let pos = bl + size/2.;
+        let sprite_bundle = SpriteBundle {
+            sprite: Sprite {
+                custom_size: Some(size),
+                ..default()
+            },
+            visibility: Visibility::Hidden,
+            transform: Transform::from_translation(pos.extend(-2.)),
+            ..default()
+        };
+        commands.entity(entity).insert(SimulationBackground);
+        commands.spawn(sprite_bundle)
+            .insert(SimulationBackground);
+    }
+}
 pub struct RenderSimulationPlugin;
 
 impl Plugin for RenderSimulationPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(GpuFeatureSupportChecker)
             .add_plugins(ExtractComponentPlugin::<RenderedSimulation>::default())
-            .add_plugins(ExtractComponentPlugin::<SimulationCamera>::default());
+            .add_plugins(ExtractComponentPlugin::<SimulationCamera>::default())
+            .add_systems(Update, update_simulation_background);
     }
 
     fn finish(&self, app: &mut App) {
@@ -151,7 +183,8 @@ impl Plugin for RenderSimulationPlugin {
             .add_render_command::<Transparent2d, DrawSimulationCommands>()
             .add_systems(
                 Render,
-                prepare_simulation_buffers.in_set(RenderSet::PrepareResources),
+                (prepare_simulation_buffers.run_if(textures_prepared))
+                    .in_set(RenderSet::PrepareResources),
             )
             .add_systems(Render, queue_simulation.in_set(RenderSet::Queue))
             .add_systems(ExtractSchedule, update_simulation_textures);
@@ -188,12 +221,12 @@ impl Plugin for GpuFeatureSupportChecker {
 /// the transparent render phases of each view.
 fn queue_simulation(
     pipeline_cache: Res<PipelineCache>,
-    custom_phase_pipeline: Res<SimulationPipeline>,
+    simulation_pipeline: Res<SimulationPipeline>,
     msaa: Res<Msaa>,
     mut transparent_render_phases: ResMut<ViewSortedRenderPhases<Transparent2d>>,
     transparent_draw_function: Res<DrawFunctions<Transparent2d>>,
     mut specialized_render_pipelines: ResMut<SpecializedRenderPipelines<SimulationPipeline>>,
-    views: Query<Entity, (With<ExtractedView>, /*With<SimulationCamera>*/)>,
+    views: Query<Entity, (With<ExtractedView> /*With<SimulationCamera>*/,)>,
     simulations: Query<Entity, With<RenderedSimulation>>,
 ) {
     let draw_simulation = transparent_draw_function
@@ -217,7 +250,7 @@ fn queue_simulation(
             // with the exception of number of MSAA samples.
             let pipeline_id = specialized_render_pipelines.specialize(
                 &pipeline_cache,
-                &custom_phase_pipeline,
+                &simulation_pipeline,
                 *msaa,
             );
 
@@ -240,8 +273,9 @@ impl SpecializedRenderPipeline for SimulationPipeline {
         RenderPipelineDescriptor {
             label: Some("simulation render pipeline".into()),
             layout: vec![
-                self.uniforms_bind_group_layout.clone(), 
-                self.textures_bind_group_layout.clone()],
+                self.uniforms_bind_group_layout.clone(),
+                self.textures_bind_group_layout.clone(),
+            ],
             push_constant_ranges: vec![],
             vertex: VertexState {
                 shader: self.shader.clone(),
@@ -284,6 +318,16 @@ impl SpecializedRenderPipeline for SimulationPipeline {
             },
         }
     }
+}
+
+fn textures_prepared(
+    simulation_textures: Res<SimulationTextures>,
+    image_assets: Res<RenderAssets<GpuImage>>,
+) -> bool {
+    simulation_textures.textures.iter().all(|handle| {
+        //println!("{:?}", handle.path());
+        image_assets.get(handle).is_some()
+    })
 }
 
 fn prepare_simulation_buffers(
@@ -343,7 +387,7 @@ fn prepare_simulation_buffers(
             );
 
             // TODO: binding textures every frame is not optimal, need to move this code into another function
-            // handling textures 
+            // handling textures
             let mut images = vec![];
             for handle in simulation_textures.textures.iter() {
                 match image_assets.get(handle) {
@@ -353,10 +397,9 @@ fn prepare_simulation_buffers(
             }
 
             let sampler = &images[0].sampler;
-            let textures: Vec<&wgpu::TextureView> = images.into_iter()
-                .map(|image| {
-                    &*image.texture_view
-                })
+            let textures: Vec<&wgpu::TextureView> = images
+                .into_iter()
+                .map(|image| &*image.texture_view)
                 .collect();
 
             let textures_bind_group = render_device.create_bind_group(
@@ -380,37 +423,49 @@ fn prepare_simulation_buffers(
 #[derive(Resource)]
 pub struct SimulationTextures {
     pub textures: Vec<Handle<Image>>,
+    pub background: Option<Handle<Image>>,
 }
 
 impl SimulationTextures {
     pub const SIMULATION_TEXTURES: [&'static str; 5] = [
         "particle-empty.png",
         "particle-sand.png",
-        "particle-metal.png", 
-        "particle-motor.png", 
+        "particle-metal.png",
+        "particle-motor.png",
         "particle-spike.png",
     ];
 }
 
 fn update_simulation_textures(mut commands: Commands, mut main_world: ResMut<MainWorld>) {
-    let Some(textures) = main_world.remove_resource::<SimulationTextures>() else { return };
+    let mut simulations = main_world.query::<(&mut Handle<Image>, &mut Visibility, &SimulationBackground)>();
+    let Some(textures) = main_world.remove_resource::<SimulationTextures>() else {
+        return;
+    };    
+
+    for (mut handle, mut visibility, _) in simulations.iter_mut(&mut main_world) {
+        *handle = textures.background.as_ref().map_or(default(), |handle| handle.clone());
+        *visibility = textures.background.as_ref().map_or(Visibility::Hidden, |_| Visibility::Visible);
+    }
+
     commands.remove_resource::<SimulationPipeline>();
     commands.remove_resource::<SpecializedRenderPipelines<SimulationPipeline>>();
 
     commands.insert_resource(textures);
     commands.init_resource::<SimulationPipeline>();
     commands.init_resource::<SpecializedRenderPipelines<SimulationPipeline>>();
-}
 
+}
 
 impl FromWorld for SimulationTextures {
     fn from_world(world: &mut World) -> Self {
         let asset_server = world.resource::<AssetServer>();
-        let textures = SimulationTextures::SIMULATION_TEXTURES.iter()
+        let textures = SimulationTextures::SIMULATION_TEXTURES
+            .iter()
             .map(|&name| asset_server.load(name))
             .collect();
         Self {
-            textures
+            textures,
+            background: None,
         }
     }
 }

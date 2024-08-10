@@ -242,6 +242,7 @@ pub mod constructor {
         pub layers: Vec<Layer>,
         pub spawns: Vec<Spawn>,
         pub textures: Vec<Handle<Image>>,
+        pub background: Option<Handle<Image>>,
 
         pub particles: Option<Vec<Particle>>,
         pub connections: Option<Vec<Connection>>,
@@ -255,8 +256,9 @@ pub mod constructor {
                 layers: vec![],
                 spawns: vec![],
                 textures: vec![],
+                background: None,
                 particles: None,
-                connections: None
+                connections: None,
             }
         }
 
@@ -306,6 +308,7 @@ pub mod constructor {
                 connections,
                 spawns: self.spawns.clone(),
                 textures_num: self.textures.len(),
+                background: self.background.is_some(),
             }
         }
     }
@@ -314,9 +317,16 @@ pub mod constructor {
 pub mod map {
     use std::path::{Path, PathBuf};
 
-    use bevy::{asset::{AssetServer, Handle}, math::Vec2, prelude::Image};
+    use bevy::{
+        asset::{AssetPath, AssetServer, Assets, Handle},
+        math::Vec2,
+        prelude::Image,
+    };
+    use common::{ASSETS_MAPS_PATH, BACKGROUND_FILE, MAP_FILE, RELATIVE_MAPS_PATH};
     use serde::{Deserialize, Serialize};
     use solver::{particle::Particle, Connection, Constraint, Solver};
+
+    use crate::serde::SerdeMapConstructor;
 
     #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
     pub struct Spawn {
@@ -332,6 +342,7 @@ pub mod map {
         pub connections: Vec<Connection>,
         pub spawns: Vec<Spawn>,
         pub textures_num: usize,
+        pub background: bool,
     }
 
     impl Map {
@@ -343,7 +354,11 @@ pub mod map {
             Self::get_texture_paths(&self.name, self.textures_num, base_path)
         }
 
-        pub fn get_texture_paths<P: AsRef<Path>>(name: &str, num: usize, base_path: P) -> Vec<PathBuf> {
+        pub fn get_texture_paths<P: AsRef<Path>>(
+            name: &str,
+            num: usize,
+            base_path: P,
+        ) -> Vec<PathBuf> {
             let mut path = PathBuf::from(base_path.as_ref());
             path.push(name);
             let mut textures = Vec::new();
@@ -353,6 +368,27 @@ pub mod map {
                 textures.push(texture_path);
             }
             textures
+        }
+
+        pub fn background_path<P: AsRef<Path>>(&self, base_path: P) -> Option<PathBuf> {
+            Map::get_background_path(&self.name, self.background, base_path)
+        }
+
+        pub fn get_background_path<P: AsRef<Path>>(name: &str, background: bool, base_path: P) -> Option<PathBuf> {
+            if !background { return None }; 
+            let mut path = PathBuf::from(base_path.as_ref());
+            path.push(name);
+            path.push(BACKGROUND_FILE);
+            Some(path)
+        }
+
+        pub fn init_from_file<P: AsRef<Path>>(name: &str, base_path: P) -> Self {
+            let mut map_path = PathBuf::from(base_path.as_ref());
+            map_path.push(name);
+            map_path.push(MAP_FILE);
+            let map_bytes =
+                std::fs::read(&map_path).expect(&format! {"Map {map_path:?} not found"});
+            Map::deserialize(&map_bytes)
         }
 
         pub fn serialize(&self) -> Vec<u8> {
@@ -366,24 +402,36 @@ pub mod map {
 
     pub struct MapLoader {
         pub map: Map,
-        pub textures: Vec<Handle<Image>>, 
+        pub textures: Vec<Handle<Image>>,
+        pub background: Option<Handle<Image>>,
     }
 
     impl MapLoader {
-        pub fn init_from_file<P: AsRef<Path> + Clone>(name: &str, base_path: P, asset_server: &AssetServer) -> Self {
+        pub fn init_from_file(
+            name: &str,
+            asset_server: &AssetServer,
+        ) -> Self {
+            let mut map_path = PathBuf::from(RELATIVE_MAPS_PATH);
+            map_path.push(name);
+            map_path.push(MAP_FILE);
+            let map_bytes =
+                std::fs::read(&map_path).expect(&format! {"Map {map_path:?} not found"});
+            let map = Map::deserialize(&map_bytes);
+            let textures = map
+                .texture_paths(ASSETS_MAPS_PATH)
+                .into_iter()
+                .map(|path| asset_server.load(path))
+                .collect();
+            let background = map.background_path(ASSETS_MAPS_PATH)
+                .map(|path| asset_server.load(path));
+            Self { map, textures, background }
+        }
+
+        pub fn map_exists<P: AsRef<Path>>(name: &str, base_path: P) -> bool {
             let mut map_path = PathBuf::from(base_path.as_ref());
             map_path.push(name);
             map_path.push("map.smog");
-            let map_bytes = std::fs::read(&map_path)
-                .expect(&format!{"Map {map_path:?} not found"});
-            let map = Map::deserialize(&map_bytes);
-            let textures = map.texture_paths(base_path).into_iter()
-                .map(|path| asset_server.load(path))
-                .collect();
-            Self {
-                map,
-                textures
-            }
+            map_path.exists()
         }
     }
 }
@@ -417,12 +465,14 @@ pub mod serde {
                 bounds: self.grid.bounds,
                 width: self.grid.width,
                 height: self.grid.height,
-                grid: vec![]
+                grid: vec![],
             };
-            let grid_particles = self.grid.grid.into_iter().map(|color| {
-                color.map(|(i, color)| (i, Rgba::<u8>(color)))
-            })
-            .collect();
+            let grid_particles = self
+                .grid
+                .grid
+                .into_iter()
+                .map(|color| color.map(|(i, color)| (i, Rgba::<u8>(color))))
+                .collect();
             grid.grid = grid_particles;
             Layer {
                 constraint: self.constraint,
@@ -440,12 +490,14 @@ pub mod serde {
                 bounds: layer.grid.bounds,
                 width: layer.grid.width,
                 height: layer.grid.height,
-                grid: vec![]
+                grid: vec![],
             };
-            let grid_particles = layer.grid.grid.iter().map(|color| {
-                color.map(|(i, color)| (i, color.0))
-            })
-            .collect();
+            let grid_particles = layer
+                .grid
+                .grid
+                .iter()
+                .map(|color| color.map(|(i, color)| (i, color.0)))
+                .collect();
             grid.grid = grid_particles;
             Self {
                 constraint: layer.constraint,
@@ -466,46 +518,60 @@ pub mod serde {
         pub layers: Vec<SerdeLayer>,
         pub spawns: Vec<Spawn>,
         pub textures_num: usize,
+        pub background: bool,
         pub particles: Option<Vec<Particle>>,
         pub connections: Option<Vec<Connection>>,
     }
 
     impl SerdeMapConstructor {
-        pub fn to_constructor<P: AsRef<Path>>(self, map_path: P, asset_server: &AssetServer) -> MapConstructor {
-            let layers: Vec<Layer> = self.layers.into_iter()
+        pub fn to_constructor<P: AsRef<Path>>(
+            self,
+            map_path: P,
+            asset_server: &AssetServer,
+        ) -> MapConstructor {
+            let layers: Vec<Layer> = self
+                .layers
+                .into_iter()
                 .map(|layer| layer.to_layer())
                 .collect();
             let mut textures_base_path = PathBuf::from(map_path.as_ref());
             textures_base_path.pop();
             textures_base_path.pop();
-            let textures = Map::get_texture_paths(&self.name, self.textures_num, textures_base_path)
-                .into_iter()
-                .map(|path| {
-                    asset_server.load(path)
-                })
-                .collect();
+            let textures =
+                Map::get_texture_paths(&self.name, self.textures_num, &textures_base_path)
+                    .into_iter()
+                    .map(|path| asset_server.load(path))
+                    .collect();
+            let background = 
+                Map::get_background_path(&self.name, self.background, &textures_base_path)
+                .map(|path| asset_server.load(path));
+
             MapConstructor {
                 name: self.name,
                 constraint: self.constraint,
                 layers,
                 spawns: self.spawns,
                 textures,
+                background,
                 particles: self.particles,
                 connections: self.connections,
             }
         }
 
         pub fn from_constructor(constructor: &MapConstructor) -> Self {
-            let layers: Vec<SerdeLayer> = constructor.layers.iter()
+            let layers: Vec<SerdeLayer> = constructor
+                .layers
+                .iter()
                 .map(|layer| SerdeLayer::from_layer(layer))
                 .collect();
-            
+
             Self {
                 name: constructor.name.clone(),
                 constraint: constructor.constraint,
                 layers,
                 spawns: constructor.spawns.clone(),
                 textures_num: constructor.textures.len(),
+                background: constructor.background.is_some(),
                 particles: constructor.particles.clone(),
                 connections: constructor.connections.clone(),
             }

@@ -12,16 +12,17 @@ use bevy::{
     window::PrimaryWindow,
 };
 
+use common::RELATIVE_MAPS_PATH;
 use map_editor::map::MapLoader;
 use solver::Solver;
 use solver::{particle, PARTICLE_RADIUS};
 
-use render::{RenderSimulationPlugin, RenderedSimulation, SimulationCamera};
+use render::{RenderSimulationPlugin, RenderedSimulation, SimulationCamera, SimulationTextures};
 
 mod network;
 use network::{client::GameClient};
 
-use packet_tools::{game_packets::{GamePacket, PACKET_SIZE}};
+use packet_tools::{game_packets::{GamePacket, PACKET_SIZE}, server_packets::ServerPacket};
 
 mod controller;
 use controller::Controller;
@@ -32,10 +33,13 @@ const SUB_TICKS: usize = 8;
 struct GameController(Controller);
 
 fn setup_simulation(mut commands: Commands, client: Res<Client>, asset_server: Res<AssetServer>) {
-    let map_loader = MapLoader::init_from_file(&client.0.map, "assets/maps", &asset_server);
+    // setup simulation
+    let map_loader = MapLoader::init_from_file(&client.0.lobby.map, &asset_server);
+    commands.insert_resource(SimulationTextures {textures: map_loader.textures, background: map_loader.background});
     let solver = map_loader.map.solver();
-
     let simulation = RenderedSimulation(solver);
+
+    // setup camera
     let (bl, tr) = simulation.0.constraint.bounds();
     let projection = OrthographicProjection {
         scale: 1.0,
@@ -58,7 +62,7 @@ fn setup_simulation(mut commands: Commands, client: Res<Client>, asset_server: R
             ..default()
         })
         .insert(simulation)
-        .insert(GameController(Controller::new(client.0.id)));
+        .insert(GameController(Controller::new(client.0.lobby.id)));
 
     // Spawn the counter
     let text_style = TextStyle {
@@ -86,7 +90,7 @@ fn update_physics(
     mut simulation: Query<(&mut RenderedSimulation, &mut GameController)>,
 ) {
     let (mut simulation, mut controller) = simulation.single_mut();
-    let packets = client.0.get_packets(SUB_TICKS);
+    let packets = client.0.get_packets(2*SUB_TICKS);
     let dt = 1. / 60. / SUB_TICKS as f32;
 
     for p in packets {
