@@ -1,9 +1,9 @@
 use bevy::math::{vec4, Vec2};
 use solver::{
-    chain_model, model, particle::{Particle, METAL, MOTOR}, Connection, Link, Model, Solver
+    chain_model, model, particle::{Particle, METAL, MOTOR, SPIKE}, Connection, Link, Model, Solver
 };
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct RawPlayerModel {
     pub particles: Vec<Particle>,
     pub connections: Vec<Connection>,
@@ -15,6 +15,7 @@ pub struct RawPlayerModel {
     pub center_connection: usize, // hp
 }
 
+#[derive(Debug, Clone)]
 pub struct PlayerModel {
     pub left_motors: Vec<usize>,  // controlled motors
     pub right_motors: Vec<usize>, // controlled motors
@@ -25,11 +26,11 @@ pub struct PlayerModel {
 }
 
 impl RawPlayerModel {
-    pub fn generate_tank() -> Self {
+    pub fn generate_tank() -> Self { // TODO: make it a constant
         let link = Link::Rigid {
             length: 1.,
             durability: 1.,
-            elasticity: 10.,
+            elasticity: 20.,
         };
 
         let mut left_base;
@@ -54,7 +55,7 @@ impl RawPlayerModel {
 
             METAL.with_color(vec4(0.25, 0.4, 0., 1.)); link => .hex:false [
                 @main = 0,2; 0,3; 0,4; 0,5; 0,6; 0,7; @muzzle_end = 0,8
-            ] + [0=>1; 1=>2; 2=>3; 3=>4; 4=>5; 5=>6; 0,2=>4,6]
+            ] + [0=>1; 1=>2; 2=>3; 3=>4; 4=>5; 5=>6]
 
             none; link => .hex:false [] + [
                 @main_connection = .global:true left_base,right_base,center_base => .global:true main;
@@ -62,23 +63,20 @@ impl RawPlayerModel {
                 @pistol2 = .global:true right_base => .global:true muzzle_end
             ]
 
-            MOTOR; link => .offset:vec2(0.,-4.), .hex:true [
+            MOTOR.with_color(vec4(0.25, 0.25, 0.25, 1.)); link => .offset:vec2(0.,-3.), .hex:true [
                 @l0 = -7.5,2; @l1 = -5.5,0; @l2 = -2,0; @l3 = 2,0; @l4 = 5.5,0; @l5 = 5.5,2;
                 @r0 = -5.5,2; @r1 = -1,2; @r2 = 3.5,2
             ] + [
                 0 => 1; 1 => 2; 2 => 3; 3 => 4; 4 => 5; 0 => 5; 1 => 4; 0 => 4;
-                0 => 6; 5 => 8; 2,3 => 7;
-                .global:true left_base => 0,1; .global:true center_base => 2,3; .global:true right_base => 4,5
-            ]
+                0,1 => 6; 4,5 => 8; 2,3 => 7;
 
-            none; Link::Force(1000.) => .hex:false [] + [
-                .global:true r0 => .global:true l1; .global:true r2 => .global:true l4
+                .global:true left_base => 0,1; .global:true center_base => 2,3; .global:true right_base => 4,5
             ]
         };
 
         let tread = chain_model! [
-            METAL; link => .start:vec2(-6., -4.-SHIFT_Y.y); 
-            r:12, ur:3, ul:1, l:1, dl:2, l:10, ul:2, l:1, dl:1, dr:2
+            METAL; link.with_elasticity(25.); 2=>SPIKE;link.with_elasticity(100.) => .start:vec2(-6., -3.-SHIFT_Y.y); 
+            r:12, ur:3, ul:1, l:1, dl:2, l:10, ul:2, l:1, dl:1, dr:3
         ];
 
         tank = tank + tread;

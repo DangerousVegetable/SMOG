@@ -20,12 +20,15 @@ use solver::{particle, PARTICLE_RADIUS};
 use render::{RenderSimulationPlugin, RenderedSimulation, SimulationCamera, SimulationTextures};
 
 mod network;
-use network::{client::GameClient};
+use network::client::GameClient;
 
-use packet_tools::{game_packets::{GamePacket, PACKET_SIZE}, server_packets::ServerPacket};
+use packet_tools::{
+    game_packets::{GamePacket, PACKET_SIZE},
+    server_packets::ServerPacket,
+};
 
 mod controller;
-use controller::{model::RawPlayerModel, Controller};
+use controller::{model::RawPlayerModel, Controller, Player};
 
 const SUB_TICKS: usize = 8;
 
@@ -34,9 +37,29 @@ struct GameController(Controller);
 
 fn setup_simulation(mut commands: Commands, client: Res<Client>, asset_server: Res<AssetServer>) {
     // setup simulation
-    let map_loader = MapLoader::init_from_file(&client.0.lobby.map, &asset_server);
-    commands.insert_resource(SimulationTextures {textures: map_loader.textures, background: map_loader.background});
-    let solver = map_loader.map.solver();
+    let tank = RawPlayerModel::generate_tank();
+    let lobby = &client.0.lobby;
+    let map_loader = MapLoader::init_from_file(&lobby.map, &asset_server);
+    commands.insert_resource(SimulationTextures {
+        textures: map_loader.textures,
+        background: map_loader.background,
+    });
+
+    let mut solver = map_loader.map.solver();
+    let mut player_model = None;
+    let mut players = Vec::new();
+    for (id, _) in lobby.players.iter() {
+        let model = RawPlayerModel::place_in_solver(
+            tank.clone(),
+            map_loader.map.spawns[*id as usize].pos,
+            &mut solver,
+        );
+        if *id == lobby.id {
+            player_model = Some(model.clone());
+        }
+        players.push((*id, model));
+    }
+
     let simulation = RenderedSimulation(solver);
 
     // setup camera
@@ -62,7 +85,11 @@ fn setup_simulation(mut commands: Commands, client: Res<Client>, asset_server: R
             ..default()
         })
         .insert(simulation)
-        .insert(GameController(Controller::new(client.0.lobby.id)));
+        .insert(GameController(Controller::new(
+            lobby.id,
+            player_model.unwrap(),
+            players,
+        )));
 
     // Spawn the counter
     let text_style = TextStyle {
@@ -90,7 +117,7 @@ fn update_physics(
     mut simulation: Query<(&mut RenderedSimulation, &mut GameController)>,
 ) {
     let (mut simulation, mut controller) = simulation.single_mut();
-    let packets = client.0.get_packets(1*SUB_TICKS);
+    let packets = client.0.get_packets(1 * SUB_TICKS);
     let dt = 1. / 60. / SUB_TICKS as f32;
 
     for p in packets {
@@ -178,11 +205,13 @@ fn control_system(
         }
 
         if keyboard.just_released(KeyCode::Digit3) {
-            let tank = RawPlayerModel::generate_tank().model();
-            simulation.0.add_model(&tank, cursor_world_position);
-            //client
-            //    .0
-            //    .send_packet(GamePacket::Tank(cursor_world_position));
+            let tank = RawPlayerModel::generate_tank()
+                .place_in_solver(cursor_world_position, &mut simulation.0);
+            controller.0.player = Player::new(controller.0.player.id, tank);
+        }
+
+        if keyboard.pressed(KeyCode::ShiftLeft) {
+            client.0.send_packets(&controller.0.move_muzzle(cursor_world_position));
         }
     }
 }
@@ -226,7 +255,8 @@ fn main() {
         .add_systems(Update, lobby_system.run_if(in_state(GameState::InLobby)))
         .add_systems(OnEnter(GameState::InGame), setup_simulation)
         .add_systems(
-            Update, 
-            (update_physics, update_sprites, control_system).run_if(in_state(GameState::InGame)))
+            Update,
+            (update_physics, update_sprites, control_system).run_if(in_state(GameState::InGame)),
+        )
         .run();
 }

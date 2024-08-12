@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, f32::consts::PI, ops::Range};
+use std::{borrow::{Borrow, BorrowMut}, f32::consts::PI, ops::Range};
 
 use bevy::math::{vec2, Vec2};
 use rand::Rng;
@@ -132,11 +132,13 @@ impl Solver {
     }
 
     pub fn resolve_collision(p1: &mut Particle, p2: &mut Particle) {
+        if !p1.kind.can_collide_with(&p2.kind) { return };
+
         let mut v = p1.pos - p2.pos;
         if v.length() < p1.radius + p2.radius {
             let overlap = p1.radius + p2.radius - v.length();
             let c1 = p2.mass / (p1.mass + p2.mass);
-            let c2 = p1.mass / (p1.mass + p2.mass);
+            let c2 = 1.-c1;
             v = v.normalize_or_zero() * overlap;
             p1.set_position(p1.pos + v * c1, true);
             p2.set_position(p2.pos - v * c2, true);
@@ -151,13 +153,18 @@ impl Solver {
     }
 
     pub fn resolve_interaction(p1: &mut Particle, p2: &mut Particle) {
-        match p1.kind {
-            //Kind::None => (),
+        match p1.kind.borrow_mut() {
             Kind::Motor(acc) => {
                 let v = (p2.pos - p1.pos).normalize();
-                let acceleration = v.perp() * acc;
+                let acceleration = v.perp() * *acc;
                 p2.accelerate(acceleration);
-                p1.accelerate(-acceleration / 2.);
+                p1.accelerate(-acceleration/2.);
+            }
+            Kind::Impulse(imp) => {
+                if *imp < 1. { return }
+                let v = (p2.pos - p1.pos).normalize();
+                p2.accelerate(v* *imp);
+                *imp /= 2.;
             }
             _ => (),
         }
@@ -213,121 +220,6 @@ impl Solver {
 
     pub fn add_spring(&mut self, i: usize, j: usize, force: f32) {
         self.connections.push((i, j, Link::Force(force)))
-    }
-
-    pub fn add_triangle(&mut self, length: f32) {
-        self.add_ring(length, 3);
-    }
-
-    pub fn add_square(&mut self, length: f32) {
-        let ind = self.particles.len();
-        self.add_ring(length, 4);
-        self.add_rib(ind, ind + 2, length * f32::sqrt(2.));
-        self.add_rib(ind + 1, ind + 3, length * f32::sqrt(2.));
-    }
-
-    pub fn add_ring(&mut self, length: f32, number: usize) {
-        let angle = PI / (number as f32);
-        let radius = 0.5 * length / f32::atan(angle);
-        let center = rnd_in_bounds(self.constraint.bounds(), radius);
-        let ind = self.particles.len();
-        for i in 0..number {
-            let alpha = 2. * PI * (i as f32) / (number as f32);
-            let pos = center + vec2(f32::cos(alpha), f32::sin(alpha)) * radius;
-            self.add_particle(GROUND.with_position(pos));
-            self.add_rib(ind + i, ind + ((i + 1) % number), length);
-        }
-    }
-
-    pub fn add_tread(&mut self, pos: Vec2, power: f32, len: usize) {
-        let ind = self.particles.len();
-        let len = len as isize;
-
-        let mut tread_indexes = vec![];
-        let mut tread_ind = self.particles.len();
-        // lower tread
-        for i in -len..=len {
-            self.add_particle(
-                METAL.with_position(
-                    pos + vec2(2. * PARTICLE_RADIUS * i as f32, -f32::sqrt(3.) / 2.),
-                ),
-            );
-            tread_indexes.push(tread_ind);
-            tread_ind += 1;
-        }
-        self.add_particle(
-            METAL.with_position(pos + vec2(2. * PARTICLE_RADIUS * (len as f32 + 0.5), 0.)),
-        );
-        tread_indexes.push(tread_ind);
-        tread_ind += 1;
-
-        // upper tread
-        for i in (-len..=len).rev() {
-            self.add_particle(
-                METAL
-                    .with_position(pos + vec2(2. * PARTICLE_RADIUS * i as f32, f32::sqrt(3.) / 2.)),
-            );
-            tread_indexes.push(tread_ind);
-            tread_ind += 1;
-        }
-        self.add_particle(
-            METAL.with_position(pos + vec2(-2. * PARTICLE_RADIUS * (len as f32 + 0.5), 0.)),
-        );
-        tread_ind += 1;
-
-        let total = 2 + 2 * (2 * len + 1) as usize;
-        for i in 0..total {
-            self.add_rib(ind + i, ind + ((i + 1) % total), 2. * PARTICLE_RADIUS);
-        }
-
-        // spikes
-        let mut spike_ind = self.particles.len();
-        for i in (-len..=len).step_by(2) {
-            self.add_particle(SPIKE.with_position(
-                pos + vec2(
-                    2. * PARTICLE_RADIUS * i as f32,
-                    -f32::sqrt(3.) / 2. - SPIKE.radius - METAL.radius,
-                ),
-            ));
-            self.add_rib(
-                tread_indexes[(i + len) as usize],
-                spike_ind,
-                SPIKE.radius + METAL.radius,
-            );
-            spike_ind += 1;
-        }
-
-        for i in (-len..=len).rev().step_by(2) {
-            self.add_particle(SPIKE.with_position(
-                pos + vec2(
-                    2. * PARTICLE_RADIUS * i as f32,
-                    f32::sqrt(3.) / 2. + SPIKE.radius + METAL.radius,
-                ),
-            ));
-            self.add_rib(
-                tread_indexes[(-i + len + 2 * len + 2) as usize],
-                spike_ind,
-                SPIKE.radius + METAL.radius,
-            );
-            spike_ind += 1;
-        }
-
-        // motors
-        let ind = self.particles.len();
-        self.add_particle(
-            MOTOR
-                .with_position(pos + vec2(-2. * PARTICLE_RADIUS * (len as f32 - 0.5), 0.))
-                .with_kind(Kind::Motor(power)),
-        );
-        self.add_particle(MOTOR.with_position(pos).with_kind(Kind::Motor(power)));
-        self.add_particle(
-            MOTOR
-                .with_position(pos + vec2(2. * PARTICLE_RADIUS * (len as f32 - 0.5), 0.))
-                .with_kind(Kind::Motor(power)),
-        );
-        self.add_rib(ind, ind + 1, (2 * len - 1) as f32 / 2.);
-        self.add_rib(ind + 1, ind + 2, (2 * len - 1) as f32 / 2.);
-        self.add_rib(ind, ind + 2, (2 * len - 1) as f32);
     }
 
     pub fn add_model(&mut self, model: &Model, pos: Vec2) {

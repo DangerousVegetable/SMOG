@@ -111,18 +111,29 @@ macro_rules! model {
 
 #[macro_export]
 macro_rules! chain_model {
-    ($p:expr; $l:expr => .start:$start:expr; $($direction:ident : $num:literal),*) => {
+    ($p:expr; $l:expr; $($step:literal=>$adj_p:expr; $adj_l:expr)? => .start:$start:expr; $($direction:ident : $num:literal),*) => {
         {
             use $crate::model::{SHIFT_X, SHIFT_Y, Model};
+            use $crate::particle::Particle;
             use bevy::math::vec2;
 
-            let mut particles = Vec::new();
+            let mut particles: Vec<Particle> = Vec::new();
             let mut connections = Vec::new();
-            particles.push($p.with_position($start));
-
-            let mut last_ind = 0;
+            
+            let mut total = 0;
+            let mut _step = 1;
+            let mut last_ind = None;
+            let mut last_pos = $start;
+            
+            let adj: Vec<Particle> = vec![$($adj_p)?];
+            let mut _adj_l = $l;
             $(
-                let last = particles[last_ind];
+                _step = $step;
+                _adj_l = $adj_l;
+            )?
+
+            $(
+                //let last_pos: Vec2 = last_ind.map_or($start, |ind: usize| particles[ind].pos);
                 let direction = {
                     match stringify!($direction) {
                         "r" => {
@@ -147,15 +158,30 @@ macro_rules! chain_model {
                     }
                 };
 
-                for i in 1..=$num {
-                    particles.push($p.with_position(last.pos + direction * i as f32));
-                    connections.push((last_ind, last_ind+1, $l.with_length(1.)));
-                    last_ind += 1;
+                for _ in 0..$num {
+                    let _ind = particles.len();
+                    particles.push($p.with_position(last_pos));
+                    let _perp = direction.perp();
+                    if total%_step == 0 {
+                        for adj_p in adj.iter() {
+                            let offset = $p.radius + adj_p.radius;
+                            particles.push(adj_p.with_position(last_pos - _perp*offset));
+                            connections.push((_ind, _ind+1, _adj_l.with_length(offset)));
+                        }
+                    }
+                    last_pos += direction;
+                    if let Some(ind) = last_ind {
+                        connections.push((ind, _ind, $l.with_length(1.)));
+                    }
+                    last_ind = Some(_ind);
+                    total += 1;
                 }
             )*
 
-            if last_ind != 0 {
-                connections.push((last_ind, 0, $l.with_length(1.)));
+            if let Some(ind) = last_ind {
+                if ind > 0 {
+                    connections.push((ind, 0, $l.with_length(1.)));
+                }
             }
 
             Model {
@@ -189,8 +215,8 @@ mod tests {
     #[test]
     fn chain_model_test() {
         let chain = chain_model![
-            METAL; Link::Rigid { length: 1., durability: 1., elasticity: 10.} => .start:vec2(0., 0.); 
-            r:2, ur:2, ul:2, l:2, dl:2, dr: 1
+            METAL; Link::Rigid { length: 1., durability: 1., elasticity: 10.}; => .start:vec2(0., 0.); 
+            r:2, ur:2, ul:2, l:2, dl:2, dr: 2
         ];
 
         assert_eq!(chain.particles.len(), 12);

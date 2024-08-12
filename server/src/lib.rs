@@ -175,9 +175,15 @@ pub mod server {
         pub async fn run<const PACKET_SIZE: usize>(&mut self) {
             self.running
                 .store(true, std::sync::atomic::Ordering::Relaxed);
+
+            let player_info: Vec<_> = self.players.iter().map(|p| {
+                (p.id, p.name.clone())
+            }).collect();
+            let player_info = ServerPacket::SetPlayers(player_info);
             for player in self.players.iter_mut() {
                 // player is borrowed only once therefore this line won't panic
                 let player = Arc::get_mut(player).unwrap();
+                let _ = player.stream.write_packet(&player_info).await;
                 let _ = player.stream.write_packet(&ServerPacket::StartGame).await;
             }
 

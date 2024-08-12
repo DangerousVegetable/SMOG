@@ -1,4 +1,4 @@
-use bevy::math::{vec2, Vec2, Vec4};
+use bevy::math::{vec2, vec4, Vec2, Vec4};
 use serde::{Deserialize, Serialize};
 
 use crate::{Constraint, PARTICLE_RADIUS};
@@ -23,9 +23,25 @@ pub const MOTOR: Particle = Particle {
 };
 
 pub const SPIKE: Particle = Particle {
-    mass: 0.1,
+    mass: 0.2,
     texture: 4,
     radius: PARTICLE_RADIUS / 2.,
+    kind: Kind::Spike,
+    ..Particle::null()
+};
+
+pub const PROJECTILE_HEAVY: Particle = Particle {
+    mass: 10.,
+    texture: 2,
+    color: vec4(1., 0., 0., 1.),
+    ..Particle::null()
+};
+
+pub const PROJECTILE_IMPULSE: Particle = Particle {
+    mass: 2.,
+    texture: 2,
+    color: vec4(1., 0., 0., 1.),
+    kind: Kind::Impulse(1000.),
     ..Particle::null()
 };
 
@@ -50,18 +66,35 @@ impl Default for Particle {
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Kind {
     None,
+    Spike, 
     Motor(f32), // motor with acc
+    Impulse(f32),
 }
 
 impl Kind {
     pub fn none(&self) -> bool {
         *self == Kind::None
     }
+
+    pub fn is_motor(&self) -> bool {
+        match self {
+            Self::Motor(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn can_collide_with(&self, kind: &Kind) -> bool {
+        match self {
+            Self::Motor(_) => *kind != Self::Spike,
+            Self::Spike => !kind.is_motor(),
+            _ => true
+        }
+    }
 }
 
 impl Particle {
-    const GRAVITY: Vec2 = vec2(0., -50.);
-    const SLOWDOWN: f32 = 80.;
+    const GRAVITY: Vec2 = vec2(0., -70.);
+    const SLOWDOWN: f32 = 100.;
 
     pub const fn null() -> Self {
         Self {
