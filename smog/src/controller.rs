@@ -4,6 +4,10 @@ use packet_tools::game_packets::{GamePacket, IndexedGamePacket};
 
 use solver::{particle::{Kind, Particle, GROUND}, Solver};
 
+use crate::network::client::LobbyInfo;
+
+pub mod model;
+
 #[derive(Default, Clone)]
 pub struct Player {
     pub id: u8,

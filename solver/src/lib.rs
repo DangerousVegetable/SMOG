@@ -1,22 +1,22 @@
-use std::{
-    borrow::Borrow,
-    f32::consts::PI,
-    ops::{Index, IndexMut, Range},
-};
+use std::{borrow::Borrow, f32::consts::PI, ops::Range};
 
 use bevy::math::{vec2, Vec2};
 use rand::Rng;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
-pub mod particle;
 mod multithreaded;
+pub mod particle;
+pub mod model;
+pub use model::Model;
+mod utils;
 use self::{
     multithreaded::UnsafeMultithreadedArray,
     particle::{MOTOR, SPIKE},
+    utils::Grid,
 };
 
-use self::particle::{Kind, Particle, METAL, GROUND};
+use self::particle::{Kind, Particle, GROUND, METAL};
 pub const MAX: u32 = 200000;
 pub const PARTICLE_RADIUS: f32 = 0.5;
 
@@ -31,12 +31,8 @@ pub struct Solver {
 }
 
 impl Solver {
-    pub fn new(
-        constraint: Constraint,
-        particles: &[Particle],
-        connections: &[Connection],
-    ) -> Self {
-        let cell_size = 2.*PARTICLE_RADIUS;
+    pub fn new(constraint: Constraint, particles: &[Particle], connections: &[Connection]) -> Self {
+        let cell_size = 2. * PARTICLE_RADIUS;
         let bounds = constraint.bounds();
         let width: usize = ((bounds.1.x - bounds.0.x) / cell_size) as usize + 3;
         let height: usize = ((bounds.1.y - bounds.0.y) / cell_size) as usize + 3;
@@ -126,8 +122,8 @@ impl Solver {
     }
 
     fn resolve_connections(&mut self) {
-        self.connections
-            .retain(|&(i, j, link)| i < self.particles.len() && j < self.particles.len() && link.durability() > 0.);
+        //self.connections
+        //    .retain(|&(i, j, link)| i < self.particles.len() && j < self.particles.len() && link.durability() > 0.);
         for (i, j, link) in self.connections.iter_mut() {
             let (i, j) = (usize::min(*i, *j), usize::max(*i, *j));
             let (head, tail) = self.particles.split_at_mut(i + 1);
@@ -161,7 +157,7 @@ impl Solver {
                 let v = (p2.pos - p1.pos).normalize();
                 let acceleration = v.perp() * acc;
                 p2.accelerate(acceleration);
-                p1.accelerate(-acceleration/2.);
+                p1.accelerate(-acceleration / 2.);
             }
             _ => (),
         }
@@ -174,47 +170,24 @@ impl Solver {
                 p1.accelerate(v * *force);
                 p2.accelerate(-v * *force);
             }
-            Link::Rigid{length, durability, elasticity} => {
+            Link::Rigid {
+                length,
+                durability,
+                elasticity,
+            } => {
+                if *durability < 0. { return };
                 let mut v = p1.pos - p2.pos;
                 let overlap = (*length - v.length()) / 2.;
                 v = overlap * v.normalize();
                 p1.set_position(p1.pos + v, true);
                 p2.set_position(p2.pos - v, true);
 
-                let max_length = *elasticity*(*length)/100.;
-                if 2.*overlap.abs() > max_length {
-                    *durability -= 2.*overlap.abs()/max_length - 1.; // substract the amount of percent max_length was exceeded
+                let max_length = *elasticity * (*length) / 100.;
+                if 2. * overlap.abs() > max_length {
+                    *durability -= 2. * overlap.abs() / max_length - 1.; // substract the amount of percent max_length was exceeded
                 }
             }
-            _ => ()
-        }
-    }
-
-    pub fn change_number(&mut self, number: usize) {
-        if number < self.particles.len() {
-            self.particles.truncate(number);
-        } else {
-            while self.particles.len() < number {
-                let left = number - self.particles.len();
-                //if left >= 20 {
-                //    self.add_ring(0.3, 20);
-                //}
-                //else if left >= 4 {
-                //    self.add_square(1.0);
-                //}
-                //else if left >= 3 {
-                //    self.add_triangle(1.0);
-                //}
-                //else {self.add_particle(SAND.place(self.rnd_origin()));}
-                let mut bounds = self.constraint.bounds();
-                bounds.0.y = bounds.1.y * 0.8;
-                let pos = rnd_in_bounds(bounds, 2. * PARTICLE_RADIUS);
-                if self.particles.len() % 10 == 0 {
-                    self.add_particle(GROUND.with_position(pos));
-                } else {
-                    self.add_particle(GROUND.with_position(pos));
-                }
-            }
+            _ => (),
         }
     }
 
@@ -227,7 +200,15 @@ impl Solver {
     }
 
     pub fn add_rib(&mut self, i: usize, j: usize, length: f32) {
-        self.connections.push((i, j, Link::Rigid{length, durability: 1., elasticity: 10.}))
+        self.connections.push((
+            i,
+            j,
+            Link::Rigid {
+                length,
+                durability: 1.,
+                elasticity: 10.,
+            },
+        ))
     }
 
     pub fn add_spring(&mut self, i: usize, j: usize, force: f32) {
@@ -260,34 +241,41 @@ impl Solver {
 
     pub fn add_tread(&mut self, pos: Vec2, power: f32, len: usize) {
         let ind = self.particles.len();
-        let len =  len as isize;
+        let len = len as isize;
 
         let mut tread_indexes = vec![];
         let mut tread_ind = self.particles.len();
         // lower tread
         for i in -len..=len {
             self.add_particle(
-                METAL.with_position(pos + vec2(2. * PARTICLE_RADIUS * i as f32, -f32::sqrt(3.) / 2.)),
+                METAL.with_position(
+                    pos + vec2(2. * PARTICLE_RADIUS * i as f32, -f32::sqrt(3.) / 2.),
+                ),
             );
             tread_indexes.push(tread_ind);
             tread_ind += 1;
         }
-        self.add_particle(METAL.with_position(pos + vec2(2. * PARTICLE_RADIUS * (len as f32 + 0.5), 0.)));
+        self.add_particle(
+            METAL.with_position(pos + vec2(2. * PARTICLE_RADIUS * (len as f32 + 0.5), 0.)),
+        );
         tread_indexes.push(tread_ind);
         tread_ind += 1;
 
         // upper tread
         for i in (-len..=len).rev() {
             self.add_particle(
-                METAL.with_position(pos + vec2(2. * PARTICLE_RADIUS * i as f32, f32::sqrt(3.) / 2.)),
+                METAL
+                    .with_position(pos + vec2(2. * PARTICLE_RADIUS * i as f32, f32::sqrt(3.) / 2.)),
             );
             tread_indexes.push(tread_ind);
             tread_ind += 1;
         }
-        self.add_particle(METAL.with_position(pos + vec2(-2. * PARTICLE_RADIUS * (len as f32 + 0.5), 0.)));
+        self.add_particle(
+            METAL.with_position(pos + vec2(-2. * PARTICLE_RADIUS * (len as f32 + 0.5), 0.)),
+        );
         tread_ind += 1;
 
-        let total = 2 + 2*(2*len+1) as usize;
+        let total = 2 + 2 * (2 * len + 1) as usize;
         for i in 0..total {
             self.add_rib(ind + i, ind + ((i + 1) % total), 2. * PARTICLE_RADIUS);
         }
@@ -295,41 +283,65 @@ impl Solver {
         // spikes
         let mut spike_ind = self.particles.len();
         for i in (-len..=len).step_by(2) {
-            self.add_particle(
-                SPIKE.with_position(pos + vec2(2. * PARTICLE_RADIUS * i as f32, -f32::sqrt(3.) / 2. - SPIKE.radius - METAL.radius)),
+            self.add_particle(SPIKE.with_position(
+                pos + vec2(
+                    2. * PARTICLE_RADIUS * i as f32,
+                    -f32::sqrt(3.) / 2. - SPIKE.radius - METAL.radius,
+                ),
+            ));
+            self.add_rib(
+                tread_indexes[(i + len) as usize],
+                spike_ind,
+                SPIKE.radius + METAL.radius,
             );
-            self.add_rib(tread_indexes[(i+len) as usize], spike_ind, SPIKE.radius + METAL.radius);
             spike_ind += 1;
         }
 
         for i in (-len..=len).rev().step_by(2) {
-            self.add_particle(
-                SPIKE.with_position(pos + vec2(2. * PARTICLE_RADIUS * i as f32, f32::sqrt(3.) / 2. + SPIKE.radius + METAL.radius)),
+            self.add_particle(SPIKE.with_position(
+                pos + vec2(
+                    2. * PARTICLE_RADIUS * i as f32,
+                    f32::sqrt(3.) / 2. + SPIKE.radius + METAL.radius,
+                ),
+            ));
+            self.add_rib(
+                tread_indexes[(-i + len + 2 * len + 2) as usize],
+                spike_ind,
+                SPIKE.radius + METAL.radius,
             );
-            self.add_rib(tread_indexes[(-i+len + 2*len+2) as usize], spike_ind, SPIKE.radius + METAL.radius);
             spike_ind += 1;
         }
 
         // motors
-        let ind  = self.particles.len();
+        let ind = self.particles.len();
         self.add_particle(
             MOTOR
                 .with_position(pos + vec2(-2. * PARTICLE_RADIUS * (len as f32 - 0.5), 0.))
                 .with_kind(Kind::Motor(power)),
         );
-        self.add_particle(
-            MOTOR
-            .with_position(pos)
-            .with_kind(Kind::Motor(power)),
-        );
+        self.add_particle(MOTOR.with_position(pos).with_kind(Kind::Motor(power)));
         self.add_particle(
             MOTOR
                 .with_position(pos + vec2(2. * PARTICLE_RADIUS * (len as f32 - 0.5), 0.))
                 .with_kind(Kind::Motor(power)),
         );
-        self.add_rib(ind, ind + 1, (2*len - 1) as f32 / 2.);
-        self.add_rib(ind+1, ind + 2, (2*len - 1) as f32 / 2.);
-        self.add_rib(ind, ind + 2, (2*len - 1) as f32);
+        self.add_rib(ind, ind + 1, (2 * len - 1) as f32 / 2.);
+        self.add_rib(ind + 1, ind + 2, (2 * len - 1) as f32 / 2.);
+        self.add_rib(ind, ind + 2, (2 * len - 1) as f32);
+    }
+
+    pub fn add_model(&mut self, model: &Model, pos: Vec2) {
+        let offset = pos - model.center;
+        let particles_num = self.particles.len();
+        self.particles.extend(
+            model
+                .particles
+                .iter()
+                .map(|p| p.with_position(p.pos + offset)),
+        );
+        self.connections.extend(model.connections.iter().map(|(i, j, link)| {
+            (*i + particles_num, *j + particles_num, *link)
+        }));
     }
 
     fn rnd_origin(&self) -> Vec2 {
@@ -359,131 +371,68 @@ impl Link {
     pub fn with_length(&self, length: f32) -> Self {
         match self {
             Self::Force(_) => *self,
-            Self::Rigid { length: _, durability, elasticity } => {
-                Self::Rigid{length, durability: *durability, elasticity: *elasticity}
-            }
+            Self::Rigid {
+                length: _,
+                durability,
+                elasticity,
+            } => Self::Rigid {
+                length,
+                durability: *durability,
+                elasticity: *elasticity,
+            },
         }
     }
 
     pub fn with_durabliity(&self, durability: f32) -> Self {
         match self {
             Self::Force(_) => *self,
-            Self::Rigid { length, durability: _, elasticity } => {
-                Self::Rigid{length: *length, durability, elasticity: *elasticity}
-            }
+            Self::Rigid {
+                length,
+                durability: _,
+                elasticity,
+            } => Self::Rigid {
+                length: *length,
+                durability,
+                elasticity: *elasticity,
+            },
         }
     }
 
     pub fn with_elasticity(&self, elasticity: f32) -> Self {
         match self {
             Self::Force(_) => *self,
-            Self::Rigid { length, durability, elasticity:_ } => {
-                Self::Rigid{length: *length, durability: *durability, elasticity}
-            }
+            Self::Rigid {
+                length,
+                durability,
+                elasticity: _,
+            } => Self::Rigid {
+                length: *length,
+                durability: *durability,
+                elasticity,
+            },
         }
     }
 
     pub fn durability(&self) -> f32 {
         match self {
-            Self::Rigid{length: _, durability, elasticity: _} => *durability,
-            _ => 1.
+            Self::Rigid {
+                length: _,
+                durability,
+                elasticity: _,
+            } => *durability,
+            _ => 1.,
         }
     }
 
     pub fn elasticity(&self) -> f32 {
         match self {
-            Self::Rigid{length: _, durability: _, elasticity} => *elasticity,
-            _ => 1.
+            Self::Rigid {
+                length: _,
+                durability: _,
+                elasticity,
+            } => *elasticity,
+            _ => 100.,
         }
-    }
-}
-
-const CELL_MAX: usize = 4;
-
-#[derive(Default, Clone)]
-pub struct GridCell<T>
-where
-    T: Clone + Copy + Default,
-{
-    pub len: usize,
-    pub elements: [T; CELL_MAX],
-}
-
-impl<T> GridCell<T>
-where
-    T: Clone + Copy + Default,
-{
-    pub fn push(&mut self, elem: T) {
-        if self.len < CELL_MAX {
-            self.elements[self.len] = elem;
-            self.len += 1;
-        }
-    }
-
-    pub fn clear(&mut self) {
-        self.len = 0;
-    }
-
-    pub fn iter(&self) -> std::slice::Iter<T> {
-        self.elements[0..self.len].iter()
-    }
-
-    pub fn iter_mut(&mut self) -> std::slice::IterMut<T> {
-        self.elements[0..self.len].iter_mut()
-    }
-}
-
-#[derive(Clone)]
-pub struct Grid<T>
-where
-    T: Clone + Copy + Default,
-{
-    pub width: usize,
-    pub height: usize,
-    grid: Vec<GridCell<T>>,
-}
-
-impl<T> Index<(usize, usize)> for Grid<T>
-where
-    T: Clone + Copy + Default,
-{
-    type Output = GridCell<T>;
-    fn index(&self, (i, j): (usize, usize)) -> &Self::Output {
-        let ind = i * self.height + j;
-        &self.grid[ind]
-    }
-}
-
-impl<T> IndexMut<(usize, usize)> for Grid<T>
-where
-    T: Clone + Copy + Default,
-{
-    fn index_mut(&mut self, (i, j): (usize, usize)) -> &mut Self::Output {
-        let ind = i * self.height + j;
-        &mut self.grid[ind]
-    }
-}
-
-impl<T> Grid<T>
-where
-    T: Clone + Copy + Default,
-{
-    pub fn new(width: usize, height: usize) -> Self {
-        Self {
-            width,
-            height,
-            grid: vec![GridCell::<T>::default(); width * height],
-        }
-    }
-
-    pub fn clear(&mut self) {
-        for cell in self.grid.iter_mut() {
-            cell.clear()
-        }
-    }
-
-    pub fn push(&mut self, ind: (usize, usize), value: T) {
-        self[ind].push(value);
     }
 }
 

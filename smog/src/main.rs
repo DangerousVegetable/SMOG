@@ -25,7 +25,7 @@ use network::{client::GameClient};
 use packet_tools::{game_packets::{GamePacket, PACKET_SIZE}, server_packets::ServerPacket};
 
 mod controller;
-use controller::Controller;
+use controller::{model::RawPlayerModel, Controller};
 
 const SUB_TICKS: usize = 8;
 
@@ -90,7 +90,7 @@ fn update_physics(
     mut simulation: Query<(&mut RenderedSimulation, &mut GameController)>,
 ) {
     let (mut simulation, mut controller) = simulation.single_mut();
-    let packets = client.0.get_packets(2*SUB_TICKS);
+    let packets = client.0.get_packets(1*SUB_TICKS);
     let dt = 1. / 60. / SUB_TICKS as f32;
 
     for p in packets {
@@ -178,9 +178,11 @@ fn control_system(
         }
 
         if keyboard.just_released(KeyCode::Digit3) {
-            client
-                .0
-                .send_packet(GamePacket::Tank(cursor_world_position));
+            let tank = RawPlayerModel::generate_tank().model();
+            simulation.0.add_model(&tank, cursor_world_position);
+            //client
+            //    .0
+            //    .send_packet(GamePacket::Tank(cursor_world_position));
         }
     }
 }
