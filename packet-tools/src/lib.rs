@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpStream};
+use tokio::net::TcpStream;
 
 pub mod game_packets;
 pub mod client_packets;
@@ -189,7 +189,7 @@ mod tests {
 
     use super::*;
 
-    type Result = std::result::Result<(), Box<dyn std::error::Error>>;
+    //type Result = std::result::Result<(), Box<dyn std::error::Error>>;
     #[test]
     fn timed_queue_test() {
         let dur = Duration::from_millis(1);

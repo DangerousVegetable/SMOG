@@ -1,31 +1,22 @@
-use std::time::{Duration, Instant};
 
 use bevy::{
     color::palettes::css::RED,
-    diagnostic::FrameTimeDiagnosticsPlugin,
-    input::mouse::{MouseButtonInput, MouseMotion, MouseScrollUnit, MouseWheel},
-    math::{vec2, vec3, Vec3A, VectorSpace},
+    input::mouse::MouseWheel,
+    math::{vec3, VectorSpace},
     prelude::*,
-    render::{camera::ScalingMode, extract_component::ExtractComponent, primitives::Aabb},
-    sprite::Anchor,
-    tasks::futures_lite::future,
+    render::camera::ScalingMode,
     window::PrimaryWindow,
 };
 
-use common::RELATIVE_MAPS_PATH;
 use map_editor::map::MapLoader;
-use solver::Solver;
-use solver::{particle, PARTICLE_RADIUS};
+use solver::PARTICLE_RADIUS;
 
 use render::{RenderSimulationPlugin, RenderedSimulation, SimulationCamera, SimulationTextures};
 
 mod network;
 use network::client::GameClient;
 
-use packet_tools::{
-    game_packets::{GamePacket, PACKET_SIZE},
-    server_packets::ServerPacket,
-};
+use packet_tools::game_packets::{GamePacket, PACKET_SIZE};
 
 mod controller;
 use controller::{model::RawPlayerModel, Controller, Player};
@@ -196,22 +187,42 @@ fn control_system(
     if let Some(cursor_world_position) = window.cursor_position().and_then(|cursor| {
         camera.viewport_to_world_2d(&GlobalTransform::from(camera_transform.clone()), cursor)
     }) {
+
         if keyboard.pressed(KeyCode::Digit1) {
+            controller.0.player.projectile = 0;
+        }
+        if keyboard.pressed(KeyCode::Digit2) {
+            controller.0.player.projectile = 1;
+        }
+        if keyboard.pressed(KeyCode::Digit3) {
+            controller.0.player.projectile = 2;
+        }
+        if keyboard.pressed(KeyCode::Digit4) {
+            controller.0.player.projectile = 3;
+        }
+        if keyboard.pressed(KeyCode::Digit5) {
+            controller.0.player.projectile = 4;
+        }
+
+        if keyboard.pressed(KeyCode::ShiftLeft) {
+            client.0.send_packets(&controller.0.move_muzzle(cursor_world_position));
+        }
+
+        if mouse.just_released(MouseButton::Left) {
+            client.0.send_packets(&controller.0.fire())
+        }
+
+        if keyboard.pressed(KeyCode::Digit0) {
             let range = if shift_pressed { -5..=5 } else { 0..=0 };
             for i in range {
                 let pos = cursor_world_position + 2. * PARTICLE_RADIUS * i as f32;
                 client.0.send_packet(GamePacket::Spawn(pos));
             }
         }
-
-        if keyboard.just_released(KeyCode::Digit3) {
-            let tank = RawPlayerModel::generate_tank()
+        if keyboard.just_released(KeyCode::Digit9) {
+            let _ = RawPlayerModel::generate_tank()
                 .place_in_solver(cursor_world_position, &mut simulation.0);
-            controller.0.player = Player::new(controller.0.player.id, tank);
-        }
-
-        if keyboard.pressed(KeyCode::ShiftLeft) {
-            client.0.send_packets(&controller.0.move_muzzle(cursor_world_position));
+            //controller.0.player = Player::new(controller.0.player.id, tank);
         }
     }
 }

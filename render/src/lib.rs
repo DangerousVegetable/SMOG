@@ -1,33 +1,28 @@
-use std::{mem, num::NonZeroU32};
+use std::num::NonZeroU32;
 
 use bevy::{
-    core_pipeline::{
-        core_2d::Transparent2d,
-        core_3d::{Opaque3d, Opaque3dBinKey, CORE_3D_DEPTH_FORMAT},
-    },
+    core_pipeline::core_2d::Transparent2d,
     ecs::{
-        query::{QueryItem, ROQueryItem, ReadOnlyQueryData},
+        query::{QueryItem, ROQueryItem},
         system::{
-            lifetimeless::{Read, SQuery, SRes},
+            lifetimeless::Read,
             SystemParamItem,
         },
     },
-    math::{vec2, vec3, FloatOrd, Vec3A},
+    math::{vec2, FloatOrd},
     prelude::*,
     render::{
-        camera::{CameraProjection, ExtractedCamera}, extract_component::{ExtractComponent, ExtractComponentPlugin}, primitives::Aabb, render_asset::RenderAssets, render_phase::{
-            AddRenderCommand, BinnedRenderPhaseType, DrawFunctions, PhaseItem, PhaseItemExtraIndex,
-            RenderCommand, RenderCommandResult, SetItemPipeline, TrackedRenderPass,
-            ViewBinnedRenderPhases, ViewSortedRenderPhases,
+        extract_component::{ExtractComponent, ExtractComponentPlugin}, render_asset::RenderAssets, render_phase::{
+            AddRenderCommand, DrawFunctions, PhaseItem, PhaseItemExtraIndex,
+            RenderCommand, RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
         }, render_resource::{
             binding_types::{sampler, texture_2d},
             BindGroup, BindGroupEntries, BindGroupLayout, BindGroupLayoutEntries, Buffer,
-            BufferUsages, ColorTargetState, ColorWrites, CompareFunction, DepthStencilState,
-            FragmentState, IndexFormat, MultisampleState, PipelineCache, PrimitiveState,
+            BufferUsages, ColorTargetState, ColorWrites,
+            FragmentState, MultisampleState, PipelineCache, PrimitiveState,
             RawBufferVec, RenderPipelineDescriptor, SpecializedRenderPipeline,
-            SpecializedRenderPipelines, TextureFormat, VertexAttribute, VertexBufferLayout,
-            VertexFormat, VertexState, VertexStepMode,
-        }, renderer::{RenderDevice, RenderQueue}, texture::{BevyDefault as _, GpuImage}, view::{self, ExtractedView, ViewUniforms, VisibilitySystems, VisibleEntities}, Extract, MainWorld, Render, RenderApp, RenderSet
+            SpecializedRenderPipelines, TextureFormat, VertexState,
+        }, renderer::{RenderDevice, RenderQueue}, texture::{BevyDefault as _, GpuImage}, view::{ExtractedView}, MainWorld, Render, RenderApp, RenderSet
     },
 };
 

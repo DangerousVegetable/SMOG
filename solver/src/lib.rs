@@ -1,6 +1,6 @@
-use std::{borrow::{Borrow, BorrowMut}, f32::consts::PI, ops::Range};
+use std::{borrow::{Borrow, BorrowMut}, ops::Range};
 
-use bevy::math::{vec2, Vec2};
+use bevy::math::Vec2;
 use rand::Rng;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -12,11 +12,10 @@ pub use model::Model;
 mod utils;
 use self::{
     multithreaded::UnsafeMultithreadedArray,
-    particle::{MOTOR, SPIKE},
     utils::Grid,
 };
 
-use self::particle::{Kind, Particle, GROUND, METAL};
+use self::particle::{Kind, Particle};
 pub const MAX: u32 = 200000;
 pub const PARTICLE_RADIUS: f32 = 0.5;
 
@@ -122,8 +121,6 @@ impl Solver {
     }
 
     fn resolve_connections(&mut self) {
-        //self.connections
-        //    .retain(|&(i, j, link)| i < self.particles.len() && j < self.particles.len() && link.durability() > 0.);
         for (i, j, link) in self.connections.iter_mut() {
             let (i, j) = (usize::min(*i, *j), usize::max(*i, *j));
             let (head, tail) = self.particles.split_at_mut(i + 1);
@@ -135,7 +132,7 @@ impl Solver {
         if !p1.kind.can_collide_with(&p2.kind) { return };
 
         let mut v = p1.pos - p2.pos;
-        if v.length() < p1.radius + p2.radius {
+        if v.length() < p1.radius + p2.radius && v.length() > 0.1 {
             let overlap = p1.radius + p2.radius - v.length();
             let c1 = p2.mass / (p1.mass + p2.mass);
             let c2 = 1.-c1;
@@ -155,16 +152,17 @@ impl Solver {
     pub fn resolve_interaction(p1: &mut Particle, p2: &mut Particle) {
         match p1.kind.borrow_mut() {
             Kind::Motor(acc) => {
-                let v = (p2.pos - p1.pos).normalize();
+                let v = (p2.pos - p1.pos).normalize_or_zero();
                 let acceleration = v.perp() * *acc;
                 p2.accelerate(acceleration);
                 p1.accelerate(-acceleration/2.);
             }
             Kind::Impulse(imp) => {
-                if *imp < 1. { return }
-                let v = (p2.pos - p1.pos).normalize();
-                p2.accelerate(v* *imp);
-                *imp /= 2.;
+                if *imp < 0. { return }
+                let v = (p2.pos - p1.pos).normalize_or_zero() * 0.66;
+                p2.set_velocity(v);
+                *imp -= 1.;
+                p1.color *= 0.95;
             }
             _ => (),
         }
@@ -185,7 +183,7 @@ impl Solver {
                 if *durability < 0. { return };
                 let mut v = p1.pos - p2.pos;
                 let overlap = (*length - v.length()) / 2.;
-                v = overlap * v.normalize();
+                v = overlap * v.normalize_or_zero();
                 p1.set_position(p1.pos + v, true);
                 p2.set_position(p2.pos - v, true);
 

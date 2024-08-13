@@ -1,4 +1,4 @@
-use log::{error, info, warn};
+use log::{error, info};
 use packet_tools::game_packets::PACKET_SIZE;
 use server::server::{GameServer, LobbyServer};
 use std::time::Duration;

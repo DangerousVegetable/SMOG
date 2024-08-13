@@ -2,24 +2,19 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::PathBuf;
 
-use bevy::asset::{AssetLoader, AssetPath, LoadState, LoadedAsset};
-use bevy::ecs::observer::TriggerTargets;
-use bevy::ecs::query::QuerySortedIter;
-use bevy::input::mouse::{MouseButtonInput, MouseWheel};
+use bevy::asset::AssetPath;
+use bevy::input::mouse::MouseWheel;
 use bevy::math::vec2;
 use bevy::prelude::*;
 
 use bevy::render::camera::ScalingMode;
-use bevy::render::render_asset::RenderAssets;
-use bevy::render::texture::GpuImage;
-use bevy::tasks::futures_lite::future;
 use bevy::tasks::{block_on, poll_once, IoTaskPool, Task};
 use bevy::window::PrimaryWindow;
 use bevy::{
     self,
     app::App,
     prelude::{Camera2dBundle, Commands, Component, NodeBundle},
-    ui::{AlignContent, JustifyContent, Style},
+    ui::{JustifyContent, Style},
     DefaultPlugins,
 };
 
@@ -29,12 +24,9 @@ use map_editor::map::{Map, Spawn};
 use map_editor::serde::SerdeMapConstructor;
 use text_io::{read, try_read};
 
-use map_editor::constructor::{self, MapConstructor};
+use map_editor::constructor::MapConstructor;
 use render::{RenderSimulationPlugin, RenderedSimulation, SimulationCamera, SimulationTextures};
 use solver::{Link, Solver};
-
-#[derive(Component)]
-struct UiCamera;
 
 #[derive(Component)]
 struct TextureColumn;
@@ -312,7 +304,7 @@ fn setup(mut commands: Commands, textures: Res<SimulationTextures>) {
 }
 
 const NORMAL_BUTTON: Color = Color::BLACK;
-const HOVERED_BUTTON: Color = Color::srgb(0.25, 0.25, 0.25);
+const _HOVERED_BUTTON: Color = Color::srgb(0.25, 0.25, 0.25);
 const PRESSED_BUTTON: Color = Color::srgb(0.35, 0.75, 0.35);
 
 fn button_system(
@@ -464,11 +456,11 @@ fn handle_constructor_update(
     mut next_state: ResMut<NextState<AppState>>,
     mut constructor: Query<&mut Constructor>,
     mut update_task: Query<(Entity, &mut ConstructorUpdate)>,
-    column: Query<Entity, With<TextureColumn>>,
+    //column: Query<Entity, With<TextureColumn>>,
     buttons: Query<(Entity, &ButtonAction), With<Button>>,
 ) {
     let mut constructor = constructor.single_mut();
-    let column = column.single();
+    //let column = column.single();
     for (entity, mut task) in &mut update_task {
         if let Some(map_constructor) = block_on(poll_once(&mut task.0)) {
             // update constructor
@@ -502,7 +494,7 @@ fn add_layer_from_image(constructor: &mut Constructor, img: &Image) {
     layer.link = Some(Link::Rigid {
         length: 1.,
         durability: 1.,
-        elasticity: 1.,
+        elasticity: 0.1,
     });
     layer.strength = 0.5;
 

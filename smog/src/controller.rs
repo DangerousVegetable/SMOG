@@ -4,11 +4,10 @@ use model::PlayerModel;
 use packet_tools::game_packets::{GamePacket, IndexedGamePacket};
 
 use solver::{
-    particle::{Kind, Particle, GROUND, PROJECTILE_HEAVY},
+    particle::{Kind, GROUND, PROJECTILE_HEAVY, PROJECTILE_IMPULSE},
     Solver,
 };
 
-use crate::network::client::LobbyInfo;
 
 pub mod model;
 
@@ -17,6 +16,7 @@ pub struct Player {
     pub id: u8,
     pub model: PlayerModel,
     pub gear: usize,
+    pub projectile: u8,
 }
 
 impl Player {
@@ -25,7 +25,7 @@ impl Player {
     const MAX_GEAR: usize = 5;
 
     pub fn new(id: u8, model: PlayerModel) -> Self {
-        Self { id, model, gear: 0 }
+        Self { id, model, gear: 0, projectile: 0}
     }
 
     pub fn get_power(&self) -> f32 {
@@ -95,7 +95,7 @@ impl Controller {
                 let direction_up = center.pos - center_base.pos;
 
                 let mut desired_pos = (desired_pos - center.pos).normalize() * 6. + center.pos;
-                if (desired_pos - center.pos).dot(direction_up) < 0. {
+                if (desired_pos - center.pos).dot(direction_up) < -0.1 {
                     desired_pos = f32::signum(direction_up.perp_dot(desired_pos - center.pos))
                         * direction_up.perp()
                         * 6.
@@ -119,7 +119,7 @@ impl Controller {
             }
             GamePacket::Fire(bullet) => {
                 let center = &solver.particles[player.model.center];
-                let muzzle_end = &solver.particles[player.model.center];
+                let muzzle_end = &solver.particles[player.model.muzzle];
                 let muzzle_dir = (muzzle_end.pos - center.pos).normalize();
                 let bullet_pos = center.pos + muzzle_dir * 10.;
 
@@ -128,9 +128,16 @@ impl Controller {
                         solver.add_particle(
                             PROJECTILE_HEAVY
                                 .with_position(bullet_pos)
-                                .with_velocity(muzzle_dir * 5.),
+                                .with_velocity(muzzle_dir/2.),
                         );
-                    }
+                    },
+                    1 => {
+                        solver.add_particle(
+                            PROJECTILE_IMPULSE
+                                .with_position(bullet_pos)
+                                .with_velocity(muzzle_dir/3.),
+                        );
+                    },
                     _ => (),
                 };
             }
@@ -138,8 +145,8 @@ impl Controller {
         }
     }
 
-    pub fn add_particle(&self, pos: Vec2) -> GamePacket {
-        GamePacket::Spawn(pos)
+    pub fn add_particle(&self, pos: Vec2) -> Vec<GamePacket> {
+        vec![GamePacket::Spawn(pos)]
     }
 
     pub fn move_player(&self, coeff: f32) -> Vec<GamePacket> {
@@ -160,5 +167,9 @@ impl Controller {
 
     pub fn move_muzzle(&self, desired_pos: Vec2) -> Vec<GamePacket> {
         vec![GamePacket::Muzzle(desired_pos)]
+    }
+
+    pub fn fire(&self) -> Vec<GamePacket> {
+        vec![GamePacket::Fire(self.player.projectile)]
     }
 }

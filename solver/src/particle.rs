@@ -32,16 +32,16 @@ pub const SPIKE: Particle = Particle {
 
 pub const PROJECTILE_HEAVY: Particle = Particle {
     mass: 10.,
-    texture: 2,
+    texture: 0,
     color: vec4(1., 0., 0., 1.),
     ..Particle::null()
 };
 
 pub const PROJECTILE_IMPULSE: Particle = Particle {
     mass: 2.,
-    texture: 2,
-    color: vec4(1., 0., 0., 1.),
-    kind: Kind::Impulse(1000.),
+    texture: 0,
+    color: vec4(0., 1., 0., 1.),
+    kind: Kind::Impulse(20.),
     ..Particle::null()
 };
 

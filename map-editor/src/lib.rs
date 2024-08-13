@@ -1,5 +1,5 @@
 pub mod constructor {
-    use std::ops::Range;
+    
 
     use bevy::{
         asset::Handle,
@@ -93,7 +93,7 @@ pub mod constructor {
         }
 
         pub fn for_each<F: FnMut(Vec2, &T)>(&self, mut f: F) {
-            let (bl, tr) = self.bounds;
+            let (_bl, tr) = self.bounds;
             for i in 1..self.width - 1 {
                 for j in 1..self.height - 1 {
                     let pos = self.get_position((i, j));
@@ -105,7 +105,7 @@ pub mod constructor {
         }
 
         pub fn for_each_mut<F: FnMut(Vec2, &mut T)>(&mut self, mut f: F) {
-            let (bl, tr) = self.bounds;
+            let (_bl, tr) = self.bounds;
             for i in 1..self.width - 1 {
                 for j in 1..self.height - 1 {
                     let pos = self.get_position((i, j));
@@ -318,7 +318,7 @@ pub mod map {
     use std::path::{Path, PathBuf};
 
     use bevy::{
-        asset::{AssetPath, AssetServer, Assets, Handle},
+        asset::{AssetServer, Handle},
         math::Vec2,
         prelude::Image,
     };
@@ -326,7 +326,7 @@ pub mod map {
     use serde::{Deserialize, Serialize};
     use solver::{particle::Particle, Connection, Constraint, Solver};
 
-    use crate::serde::SerdeMapConstructor;
+    
 
     #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
     pub struct Spawn {

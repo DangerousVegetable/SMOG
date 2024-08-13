@@ -30,7 +30,7 @@ impl RawPlayerModel {
         let link = Link::Rigid {
             length: 1.,
             durability: 1.,
-            elasticity: 20.,
+            elasticity: 25.,
         };
 
         let mut left_base;
@@ -53,7 +53,7 @@ impl RawPlayerModel {
                 1,-0.5; 1,0.5; 2,0; 3,-0.5;3,0.5; @right_base = 4,0
                 ] + [0=>1,2; 1,2=>3; 3=>4,5; 4,5=>6,7; 6,7=>8,9; 8,9=>10; 10=>11,12; 11,12=>13; 0=>13]
 
-            METAL.with_color(vec4(0.25, 0.4, 0., 1.)); link => .hex:false [
+            METAL.with_color(vec4(0.25, 0.4, 0., 1.)); link.with_elasticity(50.) => .hex:false [
                 @main = 0,2; 0,3; 0,4; 0,5; 0,6; 0,7; @muzzle_end = 0,8
             ] + [0=>1; 1=>2; 2=>3; 3=>4; 4=>5; 5=>6]
 
@@ -75,7 +75,7 @@ impl RawPlayerModel {
         };
 
         let tread = chain_model! [
-            METAL; link.with_elasticity(25.); 2=>SPIKE;link.with_elasticity(100.) => .start:vec2(-6., -3.-SHIFT_Y.y); 
+            METAL; link.with_elasticity(35.); 2=>SPIKE;link.with_elasticity(100.) => .start:vec2(-6., -3.-SHIFT_Y.y); 
             r:12, ur:3, ul:1, l:1, dl:2, l:10, ul:2, l:1, dl:1, dr:3
         ];
 

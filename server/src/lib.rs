@@ -18,7 +18,7 @@ pub mod lobby {
 
 pub mod server {
     use common::{BACKGROUND_FILE, MAP_FILE, RELATIVE_MAPS_PATH};
-    use log::{error, info, trace, warn};
+    use log::{info, trace, warn};
     use map_editor::map::Map as GameMap;
     use packet_tools::{
         client_packets::ClientPacket, server_packets::ServerPacket, IndexedPacket, TimedQueue,
@@ -31,7 +31,7 @@ pub mod server {
     };
     use tokio::{
         self,
-        net::{TcpListener, TcpStream, ToSocketAddrs},
+        net::{TcpListener, ToSocketAddrs},
         task::JoinHandle,
         time::sleep,
     };
