@@ -8,7 +8,6 @@ use solver::{
     Solver,
 };
 
-
 pub mod model;
 
 #[derive(Clone)]
@@ -25,7 +24,12 @@ impl Player {
     const MAX_GEAR: usize = 5;
 
     pub fn new(id: u8, model: PlayerModel) -> Self {
-        Self { id, model, gear: 0, projectile: 0}
+        Self {
+            id,
+            model,
+            gear: 0,
+            projectile: 0,
+        }
     }
 
     pub fn get_power(&self) -> f32 {
@@ -112,7 +116,7 @@ impl Controller {
                     + center.pos;
 
                 player.model.pistols.iter().for_each(|pistol| {
-                    let (i, _, link) = solver.connections.get_mut(*pistol).unwrap();
+                    let (i, _, link) = &mut solver.connections[*pistol];
                     let base = solver.particles[*i];
                     *link = link.with_length(desired_pos.distance(base.pos));
                 });
@@ -123,23 +127,28 @@ impl Controller {
                 let muzzle_dir = (muzzle_end.pos - center.pos).normalize();
                 let bullet_pos = center.pos + muzzle_dir * 10.;
 
-                match bullet {
+                let imp = match bullet {
                     0 => {
                         solver.add_particle(
                             PROJECTILE_HEAVY
                                 .with_position(bullet_pos)
-                                .with_velocity(muzzle_dir/2.),
+                                .with_velocity(muzzle_dir / 2.),
                         );
-                    },
+                        PROJECTILE_HEAVY.mass * muzzle_dir.length() / 2.
+                    }
                     1 => {
                         solver.add_particle(
                             PROJECTILE_IMPULSE
                                 .with_position(bullet_pos)
-                                .with_velocity(muzzle_dir/3.),
+                                .with_velocity(muzzle_dir / 3.),
                         );
-                    },
-                    _ => (),
+                        PROJECTILE_IMPULSE.mass * muzzle_dir.length() / 3.
+                    }
+                    _ => 0.,
                 };
+                let muzzle_end = &mut solver.particles[player.model.muzzle];
+                let recoil = imp / muzzle_end.mass / 2.;
+                muzzle_end.set_velocity(-recoil * muzzle_dir);
             }
             _ => (),
         }

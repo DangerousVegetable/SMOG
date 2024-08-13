@@ -53,7 +53,7 @@ impl RawPlayerModel {
                 1,-0.5; 1,0.5; 2,0; 3,-0.5;3,0.5; @right_base = 4,0
                 ] + [0=>1,2; 1,2=>3; 3=>4,5; 4,5=>6,7; 6,7=>8,9; 8,9=>10; 10=>11,12; 11,12=>13; 0=>13]
 
-            METAL.with_color(vec4(0.25, 0.4, 0., 1.)); link.with_elasticity(50.) => .hex:false [
+            METAL.with_color(vec4(0.25, 0.4, 0., 1.)); link.with_elasticity(100.) => .hex:false [
                 @main = 0,2; 0,3; 0,4; 0,5; 0,6; 0,7; @muzzle_end = 0,8
             ] + [0=>1; 1=>2; 2=>3; 3=>4; 4=>5; 5=>6]
 
