@@ -1,4 +1,3 @@
-
 #[derive(Debug)]
 pub enum ClientError {
     AuthenticationError,
@@ -9,7 +8,7 @@ pub enum ClientError {
 impl std::fmt::Display for ClientError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::AuthenticationError => write!(f, "Authentication error from the server-side"),
+            Self::AuthenticationError => write!(f, "Server-side authentication error"),
             Self::NoConnectionToServer => write!(f, "No connection to server"),
             Self::ServerClosedConnection => write!(f, "Server closed connection"),
         }

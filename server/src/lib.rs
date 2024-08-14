@@ -1,3 +1,5 @@
+pub mod error;
+
 pub mod lobby {
     use tokio::net::TcpStream;
 
@@ -17,6 +19,7 @@ pub mod lobby {
 }
 
 pub mod server {
+    use anyhow::Result;
     use common::{BACKGROUND_FILE, MAP_FILE, RELATIVE_MAPS_PATH};
     use log::{info, trace, warn};
     use map_editor::map::Map as GameMap;
@@ -36,9 +39,10 @@ pub mod server {
         time::sleep,
     };
 
-    use crate::lobby::{Lobby, Player};
-
-    type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+    use crate::{
+        error::ServerError,
+        lobby::{Lobby, Player},
+    };
 
     pub struct LobbyServer {
         lobby_task: JoinHandle<Lobby>,
@@ -68,45 +72,34 @@ pub mod server {
                             let map = map.clone();
                             let connection_task = tokio::spawn(async move {
                                 let name_packet: ClientPacket =
-                                    socket.read_packet().await.expect("Corrupted packet");
+                                    socket.read_packet().await?;
                                 let ClientPacket::SetName(name) = name_packet else {
-                                    return Err("Wrong auth packet");
+                                    return Err(ServerError::AuthenticationError)?;
                                 };
-                                socket
-                                    .write_packet(&ServerPacket::SetId(id))
-                                    .await
-                                    .expect("Unable to send id");
-                                socket
-                                    .write_packet(&ServerPacket::SetMap(map.name.clone()))
-                                    .await
-                                    .expect("Unable to send map");
-                                let map_packet: ClientPacket = socket.read_packet().await.expect("Corrupted packet");
+                                socket.write_packet(&ServerPacket::SetId(id)).await?;
+                                socket.write_packet(&ServerPacket::SetMap(map.name.clone())).await?;
+                                let map_packet: ClientPacket = socket.read_packet().await?;
                                 match map_packet {
                                     ClientPacket::RequestMap => {
                                         let mut map_path = PathBuf::from(RELATIVE_MAPS_PATH);
                                         map_path.push(&map.name);
                                         map_path.push(MAP_FILE);
-                                        let map_contents = tokio::fs::read(&map_path).await
-                                            .expect("Could not read map file");
-                                        socket.write_packet(&ServerPacket::CreateFile {name: MAP_FILE.to_string(), contents: map_contents}).await
-                                            .expect("Unable to send map file");
+                                        let map_contents = tokio::fs::read(&map_path).await?;
+                                        socket.write_packet(&ServerPacket::CreateFile {name: MAP_FILE.to_string(), contents: map_contents}).await?;
+
                                         let texture_paths = map.texture_paths(RELATIVE_MAPS_PATH);
                                         for texture_path in texture_paths.into_iter() {
-                                            let texture_contents = tokio::fs::read(&texture_path).await
-                                                .expect("Could not read texture");
+                                            let texture_contents = tokio::fs::read(&texture_path).await?;
                                             let texture_name = texture_path.file_name().unwrap().to_owned().into_string().unwrap();
                                             socket.write_packet(&ServerPacket::CreateFile {
-                                                name: texture_name, 
-                                                contents: texture_contents}).await
-                                                .expect("Could not send texture");
+                                                name: texture_name,
+                                                contents: texture_contents}).await?;
                                         }
                                         if let Some(background_path) = map.background_path(RELATIVE_MAPS_PATH) {
-                                            let background_contents = tokio::fs::read(&background_path).await
-                                                .expect("Could not read background");
+                                            let background_contents = tokio::fs::read(&background_path).await?;
                                             socket.write_packet(&ServerPacket::CreateFile {
-                                                name: BACKGROUND_FILE.to_string(), 
-                                                contents: background_contents}).await
-                                                .expect("Could not send background");
+                                                name: BACKGROUND_FILE.to_string(),
+                                                contents: background_contents}).await?;
                                         }
 
                                         info!("Map successfully sent to {name} ({})", socket.peer_addr().unwrap())
@@ -115,7 +108,7 @@ pub mod server {
                                 }
 
                                 info!("{name} joined the game from: {}", socket.peer_addr().unwrap());
-                                Ok(Player::new(id, name, socket))
+                                anyhow::Ok(Player::new(id, name, socket))
                             });
 
                             connections.push(connection_task);
@@ -176,9 +169,12 @@ pub mod server {
             self.running
                 .store(true, std::sync::atomic::Ordering::Relaxed);
 
-            let player_info: Vec<_> = self.players.iter().map(|p| {
-                (p.id, p.name.clone())
-            }).collect();
+            // send lobby info to players
+            let player_info: Vec<_> = self
+                .players
+                .iter()
+                .map(|p| (p.id, p.name.clone()))
+                .collect();
             let player_info = ServerPacket::SetPlayers(player_info);
             for player in self.players.iter_mut() {
                 // player is borrowed only once therefore this line won't panic
