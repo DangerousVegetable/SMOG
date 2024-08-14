@@ -35,9 +35,9 @@ where
     lobby_channel: Receiver<ServerPacket>,
     lobby_task: Option<JoinHandle<Result<(LobbyInfo, TcpStream)>>>,
     send_channel: Option<Sender<P>>,
-    send_task: Option<JoinHandle<()>>,
+    send_task: Option<JoinHandle<Result<()>>>,
     receive_channel: Option<Receiver<Vec<IndexedPacket<P, SIZE>>>>,
-    receive_task: Option<JoinHandle<()>>,
+    receive_task: Option<JoinHandle<Result<()>>>,
     stop_channel: Option<Sender<()>>,
 }
 
@@ -82,9 +82,7 @@ where
                     ServerPacket::SetMap(new_map) => {
                         map = new_map;
                         if !MapLoader::map_exists(&map, common::RELATIVE_MAPS_PATH) {
-                            lobby_stream
-                                .write_packet(&ClientPacket::RequestMap)
-                                .await?
+                            lobby_stream.write_packet(&ClientPacket::RequestMap).await?
                         } else {
                             lobby_stream.write_packet(&ClientPacket::Ok).await?;
                         }
@@ -96,8 +94,10 @@ where
                         tokio::fs::create_dir_all(&file_path).await?;
                         file_path.push(name);
 
-                        tokio::fs::File::create(&file_path).await?
-                            .write_all(&contents).await?
+                        tokio::fs::File::create(&file_path)
+                            .await?
+                            .write_all(&contents)
+                            .await?
                     }
                     _ => send_lobby.send(packet)?,
                 }
@@ -138,9 +138,12 @@ where
 
     pub fn run(&mut self) -> Result<()> {
         let rt = &self.runtime;
-        let (lobby, stream) = self
-            .runtime
-            .block_on(async { self.lobby_task.take().ok_or(ClientError::NoConnectionToServer)?.await? })?;
+        let (lobby, stream) = self.runtime.block_on(async {
+            self.lobby_task
+                .take()
+                .ok_or(ClientError::NoConnectionToServer)?
+                .await?
+        })?;
         let stream = Arc::new(stream);
         let (stop_channel, stop_reader) = unbounded();
 
@@ -151,12 +154,12 @@ where
         let send_task = rt.spawn(async move {
             loop {
                 if !stop_sending.is_empty() {
-                    break;
+                    return anyhow::Ok(())
                 }
                 match r_channel.try_recv() {
                     Ok(packet) => {
-                        send_stream.writable().await.unwrap();
-                        send_stream.try_write(&packet.to_bytes()).unwrap(); // TODO: error handling
+                        send_stream.writable().await?;
+                        send_stream.try_write(&packet.to_bytes())?;
                     }
                     Err(e) => (),
                 }
@@ -171,13 +174,13 @@ where
             let mut buf = Vec::from([0; 4096]);
             loop {
                 if !stop_listening.is_empty() {
-                    break;
+                    return anyhow::Ok(())
                 }
 
-                receive_stream.readable().await.unwrap();
+                receive_stream.readable().await?;
                 match receive_stream.try_read(&mut buf[buf_start..]) {
                     Ok(0) => {
-                        break;
+                        return Err(ClientError::ServerClosedConnection)?;
                     }
                     Ok(n) => {
                         let (packets, res_len) =
@@ -188,14 +191,14 @@ where
                         }
 
                         for p in packets {
-                            s_channel.send(p).unwrap();
+                            s_channel.send(p)?;
                         }
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         continue;
                     }
                     Err(e) => {
-                        break;
+                        return Err(e)?;
                     }
                 }
             }

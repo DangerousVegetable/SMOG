@@ -3,6 +3,7 @@
 pub enum ClientError {
     AuthenticationError,
     NoConnectionToServer,
+    ServerClosedConnection,
 }
 
 impl std::fmt::Display for ClientError {
@@ -10,6 +11,7 @@ impl std::fmt::Display for ClientError {
         match self {
             Self::AuthenticationError => write!(f, "Authentication error from the server-side"),
             Self::NoConnectionToServer => write!(f, "No connection to server"),
+            Self::ServerClosedConnection => write!(f, "Server closed connection"),
         }
     }
 }
