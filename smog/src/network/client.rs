@@ -235,16 +235,18 @@ where
         v
     }
 
-    pub fn send_packet(&self, packet: P) {
-        self.send_channel
-            .as_ref()
-            .map(|channel| channel.send(packet).unwrap());
+    pub fn send_packet(&self, packet: P) -> Result<()> {
+        if let Some(channel) = self.send_channel.as_ref() {
+            channel.send(packet)?;
+        }
+        anyhow::Ok(())
     }
 
-    pub fn send_packets(&self, packets: &[P]) {
+    pub fn send_packets(&self, packets: &[P]) -> Result<()> {
         for &packet in packets {
-            self.send_packet(packet);
+            self.send_packet(packet)?;
         }
+        anyhow::Ok(())
     }
 
     pub fn is_finished(&self) -> bool {

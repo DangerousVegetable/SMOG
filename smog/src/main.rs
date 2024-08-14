@@ -168,13 +168,14 @@ fn control_system(
         camera_transform.translation.y += 0.1 * factor;
     }
 
+    let mut packets: Vec<GamePacket> = vec![];
     // player
     if keyboard.pressed(KeyCode::KeyA) {
-        client.0.send_packets(&controller.0.move_tank(1.));
+        packets.extend(&controller.0.move_tank(1.));
     } else if keyboard.pressed(KeyCode::KeyD) {
-        client.0.send_packets(&controller.0.move_tank(-1.));
+        packets.extend(&controller.0.move_tank(-1.));
     } else if keyboard.just_released(KeyCode::KeyA) || keyboard.just_released(KeyCode::KeyD) {
-        client.0.send_packets(&controller.0.move_tank(0.));
+        packets.extend(&controller.0.move_tank(0.));
     }
     if keyboard.just_released(KeyCode::KeyW) {
         controller.0.player.gear_up()
@@ -184,14 +185,14 @@ fn control_system(
     }
     // rotation
     if keyboard.pressed(KeyCode::KeyQ) {
-        client.0.send_packets(&controller.0.rotate_tank(false));
+        packets.extend(&controller.0.rotate_tank(false));
     }
     if keyboard.pressed(KeyCode::KeyE) {
-        client.0.send_packets(&controller.0.rotate_tank(true));
+        packets.extend(&controller.0.rotate_tank(true));
     }
     // dash
     if keyboard.pressed(KeyCode::Space) {
-        client.0.send_packets(&controller.0.dash());
+        packets.extend(&controller.0.dash());
     }
 
     // shooting
@@ -215,34 +216,21 @@ fn control_system(
         }
 
         if shift_pressed {
-            client
-                .0
-                .send_packets(&controller.0.move_muzzle(cursor_world_position));
+            packets.extend(&controller.0.move_muzzle(cursor_world_position));
         }
 
         if mouse.pressed(MouseButton::Left) {
-            client.0.send_packets(&controller.0.fire())
-        }
-
-        // debug commands
-        if keyboard.pressed(KeyCode::Digit0) {
-            let range = if shift_pressed { -5..=5 } else { 0..=0 };
-            for i in range {
-                let pos = cursor_world_position + 2. * PARTICLE_RADIUS * i as f32;
-                client.0.send_packet(GamePacket::Spawn(pos));
-            }
-        }
-        if keyboard.just_released(KeyCode::Digit9) {
-            let _ = RawPlayerModel::generate_tank()
-                .place_in_solver(cursor_world_position, &mut simulation.0);
+            packets.extend(&controller.0.fire());
         }
     }
+
+    let _ = client.0.send_packets(&packets);
 }
 
 fn lobby_system(mut client: ResMut<Client>, mut next_state: ResMut<NextState<GameState>>) {
     if client.0.game_started() {
         next_state.set(GameState::InGame);
-        client.0.run();
+        let _ = client.0.run();
     }
 }
 
