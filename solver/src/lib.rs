@@ -209,7 +209,6 @@ impl Solver {
                     *durability -= 2. * overlap.abs() / max_length - 1.; // substract the amount of percent max_length was exceeded
                 }
             }
-            _ => (),
         }
     }
 

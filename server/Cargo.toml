@@ -6,9 +6,11 @@ edition = "2021"
 [dependencies]
 tokio = { version = "1.39.2", features = ["full"] }
 anyhow = "1.0.86"
+text_io = "0.1.12"
 log = { version = "0.4.22" }
 env_logger = "0.11.5"
 crossbeam-channel = "0.5.13"
+itertools = "0.13.0"
 packet-tools = { path = "../packet-tools" }
 map-editor = { path = "../map-editor" }
 common = { path = "../common" }

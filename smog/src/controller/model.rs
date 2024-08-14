@@ -41,6 +41,7 @@ pub struct PlayerModel {
     pub center_connection: usize, // hp
 }
 
+#[allow(unused_mut, unused_assignments)]
 impl RawPlayerModel {
     pub fn generate_tank() -> Self {
         // TODO: make it a constant

@@ -1,14 +1,13 @@
 use bevy::{
     color::palettes::css::RED,
     input::mouse::MouseWheel,
-    math::{vec3, VectorSpace},
+    math::vec3,
     prelude::*,
     render::camera::ScalingMode,
     window::PrimaryWindow,
 };
 
 use map_editor::map::MapLoader;
-use solver::PARTICLE_RADIUS;
 
 use render::{RenderSimulationPlugin, RenderedSimulation, SimulationCamera, SimulationTextures};
 
@@ -18,7 +17,7 @@ use network::client::GameClient;
 use packet_tools::game_packets::{GamePacket, PACKET_SIZE};
 
 mod controller;
-use controller::{model::RawPlayerModel, Controller, Player};
+use controller::{model::RawPlayerModel, Controller};
 
 const SUB_TICKS: usize = 8;
 
@@ -127,7 +126,7 @@ fn control_system(
     mut camera: Query<(&Camera, &mut OrthographicProjection, &mut Transform)>,
 ) {
     let (camera, mut projection, mut camera_transform) = camera.single_mut();
-    let (mut simulation, mut controller) = simulation.single_mut();
+    let (mut _simulation, mut controller) = simulation.single_mut();
     let window = windows.single();
 
     // camera

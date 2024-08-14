@@ -66,7 +66,7 @@ where
         })?;
 
         let mut lobby_stream = stream;
-        let (send_lobby, receive_lobby) = unbounded();
+        let (_send_lobby, receive_lobby) = unbounded();
         let lobby_task = rt.spawn(async move {
             let mut id = id;
             let mut map = String::new();
@@ -99,7 +99,6 @@ where
                             .write_all(&contents)
                             .await?
                     }
-                    _ => send_lobby.send(packet)?,
                 }
             }
         });
@@ -161,7 +160,7 @@ where
                         send_stream.writable().await?;
                         send_stream.try_write(&packet.to_bytes())?;
                     }
-                    Err(e) => (),
+                    Err(_e) => (),
                 }
             }
         });

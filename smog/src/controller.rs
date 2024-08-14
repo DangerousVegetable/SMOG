@@ -1,4 +1,4 @@
-use bevy::{color::Color, ecs::component::Tick, math::{vec2, vec4, Vec2}};
+use bevy::{color::Color, math::{vec2, vec4, Vec2}};
 
 use model::{PlayerModel, TANK_HP};
 use packet_tools::game_packets::{GamePacket, IndexedGamePacket};

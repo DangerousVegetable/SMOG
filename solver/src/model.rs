@@ -37,8 +37,8 @@ pub const SHIFT_X: Vec2 = vec2(1., 0.);
 pub const SHIFT_Y: Vec2 = vec2(0.5, 0.86602540378443864676372317075294);
 
 
-#[macro_export]
 #[allow(unused_mut)]
+#[macro_export]
 macro_rules! model {
     ( $($p:expr $(;$l:expr)? => $(.offset:$offset:expr,)? .hex:$hex:literal [$($(@$part_var:ident =)? $x:expr, $y:expr);*] $(+ [$($(@$conn_var:ident =)? $(.global:$global_i:literal)? $($i:expr),* => $(.global:$global_j:literal)? $($j:expr),*);*] )? )* ) => {
         {

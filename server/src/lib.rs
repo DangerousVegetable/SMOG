@@ -50,12 +50,11 @@ pub mod server {
     }
 
     impl LobbyServer {
-        pub async fn new<A: ToSocketAddrs>(addr: A, map: &str) -> Result<Self> {
+        pub async fn new<A: ToSocketAddrs>(addr: A, map: GameMap) -> Result<Self> {
             let listener = TcpListener::bind(addr).await?;
             let accept_players = Arc::new(AtomicBool::new(true));
 
-            let map = GameMap::init_from_file(&map, RELATIVE_MAPS_PATH).unwrap();
-
+            let map = Arc::new(map);
             let running = accept_players.clone();
             let lobby_task: JoinHandle<Lobby> = tokio::spawn(async move {
                 info!(
