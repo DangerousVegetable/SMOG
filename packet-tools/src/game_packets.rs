@@ -12,6 +12,8 @@ pub enum GamePacket {
     Motor(u32, f32),
     Muzzle(Vec2),
     Fire(u8),
+    Thrust(f32, f32),
+    Dash(f32),
 }
 
 impl Packet<{PACKET_SIZE}> for GamePacket {
@@ -37,6 +39,16 @@ impl Packet<{PACKET_SIZE}> for GamePacket {
                 bytes.push(4);
                 bytes.push(*bullet);
                 bytes.extend(&[0;7]);
+            }
+            Self::Thrust(left, right) => {
+                bytes.push(5);
+                bytes.extend(left.to_be_bytes());
+                bytes.extend(right.to_be_bytes());
+            }
+            Self::Dash(coeff) => {
+                bytes.push(6);
+                bytes.extend(coeff.to_be_bytes());
+                bytes.extend(&[0;4]);
             }
             Self::None => bytes = vec![0u8; 9]
         }
@@ -66,6 +78,15 @@ impl Packet<{PACKET_SIZE}> for GamePacket {
                 let bullet = value[1];
                 Self::Fire(bullet)
             }
+            5 => {
+                let left = f32::from_be_bytes(value[1..5].try_into().unwrap());
+                let right = f32::from_be_bytes(value[5..9].try_into().unwrap());
+                Self::Thrust(left, right)
+            }
+            6 => {
+                let coeff = f32::from_be_bytes(value[1..5].try_into().unwrap());
+                Self::Dash(coeff)
+            },
             _ => {
                 error!("receive damaged packet from server");
                 Self::None
@@ -85,6 +106,8 @@ mod tests{
             GamePacket::Motor(69000, 53.2),
             GamePacket::Muzzle(vec2(10.9, 32.)), 
             GamePacket::Fire(10),
+            GamePacket::Thrust(3., -1.),
+            GamePacket::Dash(210.), 
         ];
         for p in v {
             assert_eq!(p, GamePacket::from_bytes(&p.to_bytes()));

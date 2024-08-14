@@ -4,7 +4,7 @@ use std::ops::{Index, IndexMut};
 /// It allows for independent read/write in threads but is vulnerable to race conditions, use-after-free and etc.
 #[derive(Clone, Copy)]
 pub struct UnsafeMultithreadedArray<T> {
-    pub ptr: *mut T
+    ptr: *mut T
 }
 
 impl<T> UnsafeMultithreadedArray<T> {

@@ -1,19 +1,20 @@
-use std::{borrow::{Borrow, BorrowMut}, ops::Range};
+use std::{
+    borrow::{Borrow, BorrowMut},
+    ops::Range,
+};
 
-use bevy::math::Vec2;
+use bevy::math::{vec4, Vec2};
+use particle::IMPULSE_VELOCITY;
 use rand::Rng;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
+pub mod model;
 mod multithreaded;
 pub mod particle;
-pub mod model;
 pub use model::Model;
 mod utils;
-use self::{
-    multithreaded::UnsafeMultithreadedArray,
-    utils::Grid,
-};
+use self::{multithreaded::UnsafeMultithreadedArray, utils::Grid};
 
 use self::particle::{Kind, Particle};
 pub const MAX: u32 = 200000;
@@ -26,6 +27,7 @@ pub struct Solver {
     pub particles: Vec<Particle>,
     pub connections: Vec<Connection>,
     pub cell_size: f32,
+    special: Vec<usize>, // list of special particles' indexes
     grid: Grid<usize>,
 }
 
@@ -42,6 +44,7 @@ impl Solver {
             connections: Vec::from(connections),
             cell_size,
             grid: Grid::new(width, height),
+            special: vec![],
         }
     }
 
@@ -67,6 +70,7 @@ impl Solver {
 
         self.resolve_collisions();
         self.resolve_connections();
+        self.resolve_special();
 
         self.particles.par_iter_mut().for_each(|p| {
             p.apply_gravity();
@@ -109,6 +113,8 @@ impl Solver {
                                         Solver::resolve_collision(
                                             &mut particles.clone()[i],
                                             &mut particles.clone()[j],
+                                            i,
+                                            j,
                                         );
                                     }
                                 }
@@ -128,41 +134,50 @@ impl Solver {
         }
     }
 
-    pub fn resolve_collision(p1: &mut Particle, p2: &mut Particle) {
-        if !p1.kind.can_collide_with(&p2.kind) { return };
+    pub fn resolve_collision(p1: &mut Particle, p2: &mut Particle, i: usize, j: usize) {
+        if !p1.kind.can_collide_with(&p2.kind) {
+            return;
+        };
 
         let mut v = p1.pos - p2.pos;
-        if v.length() < p1.radius + p2.radius && v.length() > 0.1 {
-            let overlap = p1.radius + p2.radius - v.length();
+        let length = v.length();
+        if length < p1.radius + p2.radius && length > 0.03 {
+            let overlap = p1.radius + p2.radius - length;
             let c1 = p2.mass / (p1.mass + p2.mass);
-            let c2 = 1.-c1;
-            v = v.normalize_or_zero() * overlap;
+            let c2 = 1. - c1;
+            v = v / length * overlap;
             p1.set_position(p1.pos + v * c1, true);
             p2.set_position(p2.pos - v * c2, true);
 
             if !p1.kind.none() {
-                Solver::resolve_interaction(p1, p2);
+                Solver::resolve_interaction(p1, p2, i, j);
             }
             if !p2.kind.none() {
-                Solver::resolve_interaction(p2, p1);
+                Solver::resolve_interaction(p2, p1, j, i);
             }
         }
     }
 
-    pub fn resolve_interaction(p1: &mut Particle, p2: &mut Particle) {
+    pub fn resolve_interaction(p1: &mut Particle, p2: &mut Particle, i: usize, j: usize) {
         match p1.kind.borrow_mut() {
             Kind::Motor(acc) => {
                 let v = (p2.pos - p1.pos).normalize_or_zero();
                 let acceleration = v.perp() * *acc;
                 p2.accelerate(acceleration);
-                p1.accelerate(-acceleration/2.);
+                p1.accelerate(-acceleration / 2.);
             }
             Kind::Impulse(imp) => {
-                if *imp < 0. { return }
-                let v = (p2.pos - p1.pos).normalize_or_zero() * 0.66;
-                p2.set_velocity(v);
-                *imp -= 1.;
-                p1.color *= 0.95;
+                if *imp < 0. {
+                    return;
+                }
+                let v = (p2.pos - p1.pos).normalize_or_zero();
+                p2.set_velocity(v*IMPULSE_VELOCITY);
+                *imp -= IMPULSE_VELOCITY;
+                p1.color *= vec4(0.95, 0.95, 0.95, 1.);
+            }
+            Kind::Sticky(state, con) if *state > 0 && con.is_none() => {
+                *state -= 1;
+                *con = Some(j);
             }
             _ => (),
         }
@@ -180,7 +195,9 @@ impl Solver {
                 durability,
                 elasticity,
             } => {
-                if *durability < 0. { return };
+                if *durability < 0. {
+                    return;
+                };
                 let mut v = p1.pos - p2.pos;
                 let overlap = (*length - v.length()) / 2.;
                 v = overlap * v.normalize_or_zero();
@@ -196,22 +213,49 @@ impl Solver {
         }
     }
 
+    pub fn resolve_special(&mut self) {
+        for i in &self.special {
+            let p = &mut self.particles[*i];
+            match &mut p.kind {
+                Kind::Sticky(_, con) if con.is_some() => {
+                    self.connections.push((
+                        *i,
+                        con.unwrap(),
+                        Link::Rigid {
+                            length: 1.,
+                            durability: 1.,
+                            elasticity: 5.,
+                        },
+                    ));
+                    *con = None;
+                }
+                _ => (),
+            }
+        }
+    }
+
     pub fn size(&self) -> usize {
         self.particles.len()
     }
 
     pub fn add_particle(&mut self, particle: Particle) {
+        let ind = self.particles.len();
         self.particles.push(particle);
+
+        // add to special particles if needed
+        if particle.is_special() {
+            self.special.push(ind);
+        }
     }
 
-    pub fn add_rib(&mut self, i: usize, j: usize, length: f32) {
+    pub fn add_rib(&mut self, i: usize, j: usize, length: f32, durability: f32, elasticity: f32) {
         self.connections.push((
             i,
             j,
             Link::Rigid {
                 length,
-                durability: 1.,
-                elasticity: 10.,
+                durability,
+                elasticity,
             },
         ))
     }
@@ -229,9 +273,19 @@ impl Solver {
                 .iter()
                 .map(|p| p.with_position(p.pos + offset)),
         );
-        self.connections.extend(model.connections.iter().map(|(i, j, link)| {
-            (*i + particles_num, *j + particles_num, *link)
-        }));
+        self.connections.extend(
+            model
+                .connections
+                .iter()
+                .map(|(i, j, link)| (*i + particles_num, *j + particles_num, *link)),
+        );
+
+        // add special particles
+        for (i, p) in model.particles.iter().enumerate() {
+            if p.is_special() {
+                self.special.push(i + particles_num);
+            }
+        }
     }
 
     fn rnd_origin(&self) -> Vec2 {
@@ -273,7 +327,7 @@ impl Link {
         }
     }
 
-    pub fn with_durabliity(&self, durability: f32) -> Self {
+    pub fn with_durability(&self, durability: f32) -> Self {
         match self {
             Self::Force(_) => *self,
             Self::Rigid {

@@ -5,6 +5,7 @@ resolver = "2"
 [workspace.dependencies]
 tokio = { version = "1.39.2", features = ["full"] }
 bevy = "0.14.0"
+anyhow = "1.0.86"
 
 [profile.dev]
 opt-level = 1

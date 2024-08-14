@@ -1,7 +1,22 @@
+use std::ops::Range;
+
 use bevy::math::{vec4, Vec2};
 use solver::{
-    chain_model, model, particle::{Particle, METAL, MOTOR, SPIKE}, Connection, Link, Model, Solver
+    chain_model, model,
+    particle::{Particle, METAL, MOTOR, SPIKE},
+    Connection, Link, Model, Solver,
 };
+
+pub const TANK_HP: f32 = 50.;
+pub const TANK_ELASTICITY: f32 = 10.;
+
+pub const MUZZLE_ELASTICITY: f32 = 100.;
+
+pub const TREAD_ELASTICITY: f32 = 25.;
+pub const TREAD_HP: f32 = 10.;
+
+pub const BASE_ELASTICITY: f32 = 25.;
+pub const BASE_HP: f32 = 25.;
 
 #[derive(Default, Clone)]
 pub struct RawPlayerModel {
@@ -15,8 +30,9 @@ pub struct RawPlayerModel {
     pub center_connection: usize, // hp
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct PlayerModel {
+    pub range: Range<usize>,    // size of the model (in number of particles)
     pub left_motors: Vec<usize>,  // controlled motors
     pub right_motors: Vec<usize>, // controlled motors
     pub pistols: Vec<usize>,      // controlled connnections
@@ -26,11 +42,12 @@ pub struct PlayerModel {
 }
 
 impl RawPlayerModel {
-    pub fn generate_tank() -> Self { // TODO: make it a constant
+    pub fn generate_tank() -> Self {
+        // TODO: make it a constant
         let link = Link::Rigid {
             length: 1.,
-            durability: 1.,
-            elasticity: 25.,
+            durability: BASE_HP,
+            elasticity: BASE_ELASTICITY,
         };
 
         let mut left_base;
@@ -41,7 +58,7 @@ impl RawPlayerModel {
         let mut muzzle_end;
 
         let mut main_connection = 0;
-        let (mut pistol1, mut pistol2) = (0,0);
+        let (mut pistol1, mut pistol2) = (0, 0);
 
         let (mut l0, mut l1, mut l2, mut l3, mut l4, mut l5) = (0, 0, 0, 0, 0, 0); // left motors
         let (mut r0, mut r1, mut r2) = (0, 0, 0); // right motors
@@ -53,14 +70,18 @@ impl RawPlayerModel {
                 1,-0.5; 1,0.5; 2,0; 3,-0.5;3,0.5; @right_base = 4,0
                 ] + [0=>1,2; 1,2=>3; 3=>4,5; 4,5=>6,7; 6,7=>8,9; 8,9=>10; 10=>11,12; 11,12=>13; 0=>13]
 
-            METAL.with_color(vec4(0.25, 0.4, 0., 1.)); link.with_elasticity(100.) => .hex:false [
+            METAL.with_color(vec4(0.25, 0.4, 0., 1.)); link.with_elasticity(MUZZLE_ELASTICITY) => .hex:false [
                 @main = 0,2; 0,3; 0,4; 0,5; 0,6; 0,7; @muzzle_end = 0,8
             ] + [0=>1; 1=>2; 2=>3; 3=>4; 4=>5; 5=>6]
 
             none; link => .hex:false [] + [
-                @main_connection = .global:true left_base,right_base,center_base => .global:true main;
+                .global:true left_base, right_base => .global:true main;
                 @pistol1 = .global:true left_base => .global:true muzzle_end;
                 @pistol2 = .global:true right_base => .global:true muzzle_end
+            ]
+
+            none; link.with_durability(TANK_HP).with_elasticity(TANK_ELASTICITY) => .hex:false [] + [
+                @main_connection = .global:true center_base => .global:true main
             ]
 
             MOTOR.with_color(vec4(0.25, 0.25, 0.25, 1.)); link => .offset:vec2(0.,-3.), .hex:true [
@@ -75,7 +96,7 @@ impl RawPlayerModel {
         };
 
         let tread = chain_model! [
-            METAL; link.with_elasticity(35.); 2=>SPIKE;link.with_elasticity(100.) => .start:vec2(-6., -3.-SHIFT_Y.y); 
+            METAL; link.with_elasticity(TREAD_ELASTICITY).with_durability(TREAD_HP); 2=>SPIKE;link.with_elasticity(100.) => .start:vec2(-6., -3.-SHIFT_Y.y);
             r:12, ur:3, ul:1, l:1, dl:2, l:10, ul:2, l:1, dl:1, dr:3
         ];
 
@@ -106,14 +127,15 @@ impl RawPlayerModel {
         let particles = solver.size();
         let connections = solver.connections.len();
         let player_model = PlayerModel {
-            left_motors: self.left_motors.iter().map(|m| *m+particles).collect(),
-            right_motors: self.right_motors.iter().map(|m| *m+particles).collect(),
-            pistols: self.pistols.iter().map(|m| *m+connections).collect(),
+            range: particles..particles+self.particles.len(),
+            left_motors: self.left_motors.iter().map(|m| *m + particles).collect(),
+            right_motors: self.right_motors.iter().map(|m| *m + particles).collect(),
+            pistols: self.pistols.iter().map(|m| *m + connections).collect(),
             center: self.center + particles,
             muzzle: self.muzzle + particles,
             center_connection: self.center_connection + connections,
         };
-        
+
         let model = self.model();
         solver.add_model(&model, pos);
         player_model
@@ -129,6 +151,7 @@ mod tests {
         let tank = RawPlayerModel::generate_tank();
         println!("{}", tank.particles.len());
         println!("{}", tank.connections.len());
-        assert_eq!(tank.center_connection, 30);
+        assert_eq!(tank.pistols[0], 29);
+        assert_eq!(tank.center_connection, 31);
     }
 }

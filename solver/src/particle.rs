@@ -32,18 +32,28 @@ pub const SPIKE: Particle = Particle {
 
 pub const PROJECTILE_HEAVY: Particle = Particle {
     mass: 10.,
-    texture: 0,
+    texture: 4,
     color: vec4(1., 0., 0., 1.),
     ..Particle::null()
 };
 
+pub const IMPULSE_VELOCITY: f32 = 0.66;
 pub const PROJECTILE_IMPULSE: Particle = Particle {
-    mass: 2.,
+    mass: 4.,
     texture: 0,
     color: vec4(0., 1., 0., 1.),
     kind: Kind::Impulse(20.),
     ..Particle::null()
 };
+
+pub const PROJECTILE_STICKY: Particle = Particle {
+    mass: 0.1,
+    texture: 0,
+    color: vec4(0.5, 0.5, 0.5, 1.),
+    kind: Kind::Sticky(6, None),
+    ..Particle::null()
+};
+
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Particle {
@@ -69,24 +79,32 @@ pub enum Kind {
     Spike, 
     Motor(f32), // motor with acc
     Impulse(f32),
+    Sticky(u8, Option<usize>), // active state + unhandled connection
 }
 
 impl Kind {
     pub fn none(&self) -> bool {
-        *self == Kind::None
+        self == &Kind::None
     }
 
     pub fn is_motor(&self) -> bool {
         match self {
-            Self::Motor(_) => true,
+            &Self::Motor(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn is_special(&self) -> bool {
+        match self {
+            &Kind::Sticky(_, _) => true,
             _ => false
         }
     }
 
     pub fn can_collide_with(&self, kind: &Kind) -> bool {
         match self {
-            Self::Motor(_) => *kind != Self::Spike,
-            Self::Spike => !kind.is_motor(),
+            &Self::Motor(_) => *kind != Self::Spike,
+            &Self::Spike => !kind.is_motor(),
             _ => true
         }
     }
@@ -95,6 +113,7 @@ impl Kind {
 impl Particle {
     const GRAVITY: Vec2 = vec2(0., -70.);
     const SLOWDOWN: f32 = 100.;
+    const MAX_SPEED: f32 = 3.;
 
     pub const fn null() -> Self {
         Self {
@@ -146,7 +165,7 @@ impl Particle {
     }
 
     pub fn update(&mut self, dt: f32) {
-        let vel = self.pos - self.pos_old;
+        let vel = (self.pos - self.pos_old).clamp_length(0., Self::MAX_SPEED);
         let new_pos = self.pos + vel + (self.acc - vel * Particle::SLOWDOWN) * dt * dt;
         self.pos_old = self.pos;
         self.pos = new_pos;
@@ -166,8 +185,17 @@ impl Particle {
         self.acc = if keep_acc { self.acc } else { Vec2::ZERO };
     }
 
-    pub fn set_velocity(&mut self, speed: Vec2) {
-        self.pos_old = self.pos - speed;
+    pub fn velocity(&self) -> Vec2 {
+        self.pos - self.pos_old
+    }
+
+    pub fn set_velocity(&mut self, velocity: Vec2) {
+        self.pos_old = self.pos - velocity;
+    }
+
+    pub fn add_velocity(&mut self, velocity: Vec2) {
+        let vel = self.velocity() + velocity;
+        self.set_velocity(vel);
     }
 
     pub fn set_kind(&mut self, kind: Kind) {
@@ -187,10 +215,10 @@ impl Particle {
     }
 
     pub fn is_motor(&self) -> bool {
-        if let Kind::Motor(_) = self.kind {
-            true
-        } else {
-            false
-        }
+        self.kind.is_motor()
+    }
+
+    pub fn is_special(&self) -> bool {
+        self.kind.is_special()
     }
 }

@@ -1,9 +1,13 @@
 use std::{path::PathBuf, sync::Arc};
 
+use anyhow::Result;
 use common::RELATIVE_MAPS_PATH;
 use map_editor::map::MapLoader;
 use tokio::{
-    io::AsyncWriteExt, net::{TcpStream, ToSocketAddrs}, runtime::Runtime, task::JoinHandle
+    io::AsyncWriteExt,
+    net::{TcpStream, ToSocketAddrs},
+    runtime::Runtime,
+    task::JoinHandle,
 };
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -12,6 +16,8 @@ use packet_tools::{
     client_packets::ClientPacket, server_packets::ServerPacket, IndexedPacket, Packet,
     UnsizedPacketRead, UnsizedPacketWrite,
 };
+
+use crate::network::error::ClientError;
 
 pub struct LobbyInfo {
     pub id: u8,
@@ -27,7 +33,7 @@ where
     pub lobby: LobbyInfo,
     runtime: Runtime,
     lobby_channel: Receiver<ServerPacket>,
-    lobby_task: Option<JoinHandle<(LobbyInfo, TcpStream)>>,
+    lobby_task: Option<JoinHandle<Result<(LobbyInfo, TcpStream)>>>,
     send_channel: Option<Sender<P>>,
     send_task: Option<JoinHandle<()>>,
     receive_channel: Option<Receiver<Vec<IndexedPacket<P, SIZE>>>>,
@@ -39,27 +45,25 @@ impl<P, const SIZE: usize> GameClient<P, SIZE>
 where
     P: Packet<SIZE> + std::fmt::Debug,
 {
-    pub fn new<A>(addr: A, name: String) -> Self
+    pub fn new<A>(addr: A, name: String) -> Result<Self>
     where
         A: ToSocketAddrs,
     {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
-            .build()
-            .expect("Could not build tokio runtime");
+            .build()?;
 
         let (id, name, stream) = rt.block_on(async {
-            let mut stream = TcpStream::connect(addr).await.unwrap();
+            let mut stream = TcpStream::connect(addr).await?;
             stream
                 .write_packet(&ClientPacket::SetName(name.clone()))
-                .await
-                .unwrap();
-            let ServerPacket::SetId(id) = stream.read_packet().await.unwrap() else {
-                panic!("Authentication error")
+                .await?;
+            let ServerPacket::SetId(id) = stream.read_packet().await? else {
+                return Result::Err(ClientError::AuthenticationError)?;
             };
-            
-            (id, name, stream)
-        });
+
+            anyhow::Ok((id, name, stream))
+        })?;
 
         let mut lobby_stream = stream;
         let (send_lobby, receive_lobby) = unbounded();
@@ -68,44 +72,39 @@ where
             let mut map = String::new();
             let mut players = Vec::new();
             loop {
-                let packet = lobby_stream.read_packet().await.unwrap();
+                let packet = lobby_stream.read_packet().await?;
                 match packet {
                     ServerPacket::StartGame => {
-                        let lobby = LobbyInfo {
-                            id,
-                            map,
-                            players,
-                        };
-                        return (lobby, lobby_stream)
+                        let lobby = LobbyInfo { id, map, players };
+                        return anyhow::Ok((lobby, lobby_stream));
                     }
                     ServerPacket::SetId(new_id) => id = new_id,
                     ServerPacket::SetMap(new_map) => {
                         map = new_map;
                         if !MapLoader::map_exists(&map, common::RELATIVE_MAPS_PATH) {
-                            lobby_stream.write_packet(&ClientPacket::RequestMap).await.unwrap();
+                            lobby_stream
+                                .write_packet(&ClientPacket::RequestMap)
+                                .await?
                         } else {
-                            lobby_stream.write_packet(&ClientPacket::Ok).await.unwrap();
+                            lobby_stream.write_packet(&ClientPacket::Ok).await?;
                         }
                     }
                     ServerPacket::SetPlayers(new_players) => players = new_players,
                     ServerPacket::CreateFile { name, contents } => {
                         let mut file_path = PathBuf::from(RELATIVE_MAPS_PATH);
                         file_path.push(&map);
-                        tokio::fs::create_dir_all(&file_path).await
-                            .expect("Unable to create map dir");
+                        tokio::fs::create_dir_all(&file_path).await?;
                         file_path.push(name);
 
-                        tokio::fs::File::create(&file_path).await
-                            .expect(&format!{"Unable to create file {:?}", file_path})
-                            .write_all(&contents).await
-                            .expect("Unable to write to file");
+                        tokio::fs::File::create(&file_path).await?
+                            .write_all(&contents).await?
                     }
-                    _ => send_lobby.send(packet).unwrap(),
+                    _ => send_lobby.send(packet)?,
                 }
             }
         });
 
-        Self {
+        Ok(Self {
             name,
             lobby: LobbyInfo {
                 id,
@@ -120,7 +119,7 @@ where
             receive_channel: None,
             receive_task: None,
             stop_channel: None,
-        }
+        })
     }
 
     pub fn get_lobby_packets(&self) -> Vec<ServerPacket> {
@@ -132,12 +131,16 @@ where
     }
 
     pub fn game_started(&self) -> bool {
-        self.lobby_task.as_ref().map_or(true, |task| task.is_finished())
+        self.lobby_task
+            .as_ref()
+            .map_or(true, |task| task.is_finished())
     }
 
-    pub fn run(&mut self) {
+    pub fn run(&mut self) -> Result<()> {
         let rt = &self.runtime;
-        let (lobby, stream) = self.runtime.block_on(async {self.lobby_task.take().unwrap().await.unwrap()});
+        let (lobby, stream) = self
+            .runtime
+            .block_on(async { self.lobby_task.take().ok_or(ClientError::NoConnectionToServer)?.await? })?;
         let stream = Arc::new(stream);
         let (stop_channel, stop_reader) = unbounded();
 
@@ -204,6 +207,8 @@ where
         self.receive_channel = Some(receive_channel);
         self.receive_task = Some(receive_task);
         self.stop_channel = Some(stop_channel);
+
+        anyhow::Ok(())
     }
 
     pub fn stop(&mut self) {
@@ -213,7 +218,9 @@ where
     }
 
     pub fn get_packets(&self, limit: usize) -> Vec<Vec<IndexedPacket<P, SIZE>>> {
-        let Some(channel) = self.receive_channel.as_ref() else { return vec![] };
+        let Some(channel) = self.receive_channel.as_ref() else {
+            return vec![];
+        };
         let mut v = Vec::new();
         for _ in 0..limit {
             if let Ok(packets) = channel.try_recv() {
@@ -238,8 +245,13 @@ where
     }
 
     pub fn is_finished(&self) -> bool {
-        self.send_task.as_ref().map_or(true, |task| task.is_finished())
-            && self.receive_task.as_ref().map_or(true, |task| task.is_finished())
+        self.send_task
+            .as_ref()
+            .map_or(true, |task| task.is_finished())
+            && self
+                .receive_task
+                .as_ref()
+                .map_or(true, |task| task.is_finished())
     }
 }
 

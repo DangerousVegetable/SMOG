@@ -1,4 +1,3 @@
-
 use bevy::{
     color::palettes::css::RED,
     input::mouse::MouseWheel,
@@ -171,11 +170,11 @@ fn control_system(
 
     // player
     if keyboard.pressed(KeyCode::KeyA) {
-        client.0.send_packets(&controller.0.move_player(1.));
+        client.0.send_packets(&controller.0.move_tank(1.));
     } else if keyboard.pressed(KeyCode::KeyD) {
-        client.0.send_packets(&controller.0.move_player(-1.));
+        client.0.send_packets(&controller.0.move_tank(-1.));
     } else if keyboard.just_released(KeyCode::KeyA) || keyboard.just_released(KeyCode::KeyD) {
-        client.0.send_packets(&controller.0.move_player(0.));
+        client.0.send_packets(&controller.0.move_tank(0.));
     }
     if keyboard.just_released(KeyCode::KeyW) {
         controller.0.player.gear_up()
@@ -183,11 +182,22 @@ fn control_system(
     if keyboard.just_released(KeyCode::KeyS) {
         controller.0.player.gear_down()
     }
+    // rotation
+    if keyboard.pressed(KeyCode::KeyQ) {
+        client.0.send_packets(&controller.0.rotate_tank(false));
+    }
+    if keyboard.pressed(KeyCode::KeyE) {
+        client.0.send_packets(&controller.0.rotate_tank(true));
+    }
+    // dash
+    if keyboard.pressed(KeyCode::Space) {
+        client.0.send_packets(&controller.0.dash());
+    }
 
+    // shooting
     if let Some(cursor_world_position) = window.cursor_position().and_then(|cursor| {
         camera.viewport_to_world_2d(&GlobalTransform::from(camera_transform.clone()), cursor)
     }) {
-
         if keyboard.pressed(KeyCode::Digit1) {
             controller.0.player.projectile = 0;
         }
@@ -204,14 +214,17 @@ fn control_system(
             controller.0.player.projectile = 4;
         }
 
-        if keyboard.pressed(KeyCode::ShiftLeft) {
-            client.0.send_packets(&controller.0.move_muzzle(cursor_world_position));
+        if shift_pressed {
+            client
+                .0
+                .send_packets(&controller.0.move_muzzle(cursor_world_position));
         }
 
-        if mouse.just_released(MouseButton::Left) {
+        if mouse.pressed(MouseButton::Left) {
             client.0.send_packets(&controller.0.fire())
         }
 
+        // debug commands
         if keyboard.pressed(KeyCode::Digit0) {
             let range = if shift_pressed { -5..=5 } else { 0..=0 };
             for i in range {
@@ -222,7 +235,6 @@ fn control_system(
         if keyboard.just_released(KeyCode::Digit9) {
             let _ = RawPlayerModel::generate_tank()
                 .place_in_solver(cursor_world_position, &mut simulation.0);
-            //controller.0.player = Player::new(controller.0.player.id, tank);
         }
     }
 }
@@ -246,8 +258,6 @@ enum GameState {
 }
 
 fn main() {
-    const PHYSICS_UPDATE_TIME: u64 = 1000000000 / 64;
-
     let args: Vec<_> = std::env::args().collect();
     if args.len() < 1 {
         warn!("provide an ip of the server as a command line argument");
@@ -256,18 +266,26 @@ fn main() {
     let addr = &args[1];
     let default_name = "player".to_string();
     let name = args.get(2).unwrap_or(&default_name);
-    let client = GameClient::<GamePacket, PACKET_SIZE>::new(addr, name.clone());
+    let client = GameClient::<GamePacket, PACKET_SIZE>::new(addr, name.clone()).unwrap();
 
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                title: "SMOG".to_string(),
+                ..default()
+            }),
+            ..default()
+        }))
         .add_plugins(RenderSimulationPlugin)
+        .insert_resource(Time::<Fixed>::from_hz(64.0))
         .insert_resource(Client(client))
         .insert_state(GameState::InLobby)
         .add_systems(Update, lobby_system.run_if(in_state(GameState::InLobby)))
         .add_systems(OnEnter(GameState::InGame), setup_simulation)
         .add_systems(
             Update,
-            (update_physics, update_sprites, control_system).run_if(in_state(GameState::InGame)),
+            (update_sprites, control_system).run_if(in_state(GameState::InGame)),
         )
+        .add_systems(FixedUpdate, (update_physics).run_if(in_state(GameState::InGame)))
         .run();
 }
