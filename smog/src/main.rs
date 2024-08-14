@@ -126,7 +126,7 @@ fn control_system(
     mut camera: Query<(&Camera, &mut OrthographicProjection, &mut Transform)>,
 ) {
     let (camera, mut projection, mut camera_transform) = camera.single_mut();
-    let (mut _simulation, mut controller) = simulation.single_mut();
+    let (mut simulation, mut controller) = simulation.single_mut();
     let window = windows.single();
 
     // camera
@@ -220,6 +220,11 @@ fn control_system(
 
         if mouse.pressed(MouseButton::Left) {
             packets.extend(&controller.0.fire());
+        }
+
+        if keyboard.just_released(KeyCode::Digit9) {
+            let _ = RawPlayerModel::generate_tank()
+                .place_in_solver(cursor_world_position, &mut simulation.0);
         }
     }
 

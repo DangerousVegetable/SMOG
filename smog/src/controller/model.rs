@@ -7,16 +7,19 @@ use solver::{
     Connection, Link, Model, Solver,
 };
 
-pub const TANK_HP: f32 = 50.;
+pub const TANK_HP: f32 = 7.;
 pub const TANK_ELASTICITY: f32 = 10.;
 
 pub const MUZZLE_ELASTICITY: f32 = 100.;
 
-pub const TREAD_ELASTICITY: f32 = 25.;
-pub const TREAD_HP: f32 = 10.;
+pub const TREAD_ELASTICITY: f32 = 30.;
+pub const TREAD_HP: f32 = 3.;
 
-pub const BASE_ELASTICITY: f32 = 25.;
-pub const BASE_HP: f32 = 25.;
+pub const BASE_HP: f32 = 4.;
+pub const BASE_ELASTICITY: f32 = 30.;
+
+pub const PISTOL_HP: f32 = 3.;
+pub const PISTOL_ELASTICITY: f32 = 20.;
 
 #[derive(Default, Clone)]
 pub struct RawPlayerModel {
@@ -39,6 +42,14 @@ pub struct PlayerModel {
     pub center: usize,            // main particle
     pub muzzle: usize,            // end of the muzzle
     pub center_connection: usize, // hp
+}
+
+impl PlayerModel {
+    pub fn for_each<F: FnMut(usize)>(&self, mut f: F) {
+        for i in self.range.clone() {
+            f(i);
+        }
+    }
 }
 
 #[allow(unused_mut, unused_assignments)]
@@ -75,7 +86,7 @@ impl RawPlayerModel {
                 @main = 0,2; 0,3; 0,4; 0,5; 0,6; 0,7; @muzzle_end = 0,8
             ] + [0=>1; 1=>2; 2=>3; 3=>4; 4=>5; 5=>6]
 
-            none; link => .hex:false [] + [
+            none; link.with_durability(PISTOL_HP).with_elasticity(PISTOL_ELASTICITY) => .hex:false [] + [
                 .global:true left_base, right_base => .global:true main;
                 @pistol1 = .global:true left_base => .global:true muzzle_end;
                 @pistol2 = .global:true right_base => .global:true muzzle_end

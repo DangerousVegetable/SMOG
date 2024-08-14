@@ -502,7 +502,7 @@ fn add_layer_from_image(constructor: &mut Constructor, img: &Image) {
     layer.link = Some(Link::Rigid {
         length: 1.,
         durability: 1.,
-        elasticity: 0.1,
+        elasticity: 5.,
     });
     layer.strength = 0.5;
 

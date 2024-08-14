@@ -1,6 +1,6 @@
-use bevy::{color::Color, math::{vec2, vec4, Vec2}};
+use bevy::{color::Color, math::{vec2, vec4, Vec2, Vec4}};
 
-use model::{PlayerModel, TANK_HP};
+use model::{PlayerModel, PISTOL_HP, TANK_HP};
 use packet_tools::game_packets::{GamePacket, IndexedGamePacket};
 
 use solver::{
@@ -81,9 +81,15 @@ impl Controller {
         for player in self.players.iter() {
             let center = &mut solver.particles[player.model.center];
             let hp_connection = solver.connections[player.model.center_connection];
-            let hp = (hp_connection.2.durability() / TANK_HP).max(0.);
-            let color = Color::hsl(hp*120., 1., if hp == 0. {0.} else {0.7}).to_linear();
-            center.color = vec4(color.red, color.green, color.blue, 1.);
+            let hp = hp_connection.2.durability() / TANK_HP;
+            center.color = get_color(hp);
+
+            for pistol in &player.model.pistols {
+                let (pistol_base, _, link) = solver.connections[*pistol];
+                let pistol_base = &mut solver.particles[pistol_base];
+                let hp = link.durability() / PISTOL_HP;
+                pistol_base.color = get_color(hp);
+            }
         }
     }
 
@@ -121,7 +127,7 @@ impl Controller {
                 solver.add_particle(GROUND.with_position(pos).with_velocity(vec2(0., -0.5)));
             }
             GamePacket::Dash(coeff) => {
-                let vel = (center.velocity() * coeff).clamp_length_min(0.05);
+                let vel = (center.velocity() * coeff).clamp_length(0.05, 0.1);
                 for p in &mut solver.particles[player.model.range.clone()] {
                     p.set_velocity(coeff*vel);
                 }
@@ -177,8 +183,10 @@ impl Controller {
 
                 let imp = force * muzzle_dir.length() * projectile.mass;
                 let muzzle_end = &mut solver.particles[player.model.muzzle];
-                let recoil = imp / muzzle_end.mass / 2.;
-                muzzle_end.set_velocity(-recoil * muzzle_dir);
+                let recoil = imp / muzzle_end.mass / 100.;
+                player.model.for_each(|i| {
+                    solver.particles[i].add_velocity(-recoil * muzzle_dir);
+                });
             }
             _ => (),
         }
@@ -243,6 +251,12 @@ impl Controller {
             vec![GamePacket::Dash(2.)]
         })
     }
+}
+
+fn get_color(a: f32) -> Vec4 {
+    let a = a.max(0.);
+    let color = Color::hsl(a*120., 1., if a == 0. {0.} else {0.7}).to_linear();
+    vec4(color.red, color.green, color.blue, 1.)
 }
 
 #[derive(Clone, Default)]

@@ -141,8 +141,9 @@ impl Solver {
 
         let mut v = p1.pos - p2.pos;
         let length = v.length();
-        if length < p1.radius + p2.radius && length > 0.03 {
-            let overlap = p1.radius + p2.radius - length;
+        let min_length = p1.radius + p2.radius;
+        if length < min_length && length > 0.0001 {
+            let overlap = min_length - length;
             let c1 = p2.mass / (p1.mass + p2.mass);
             let c2 = 1. - c1;
             v = v / length * overlap;
@@ -204,9 +205,9 @@ impl Solver {
                 p1.set_position(p1.pos + v, true);
                 p2.set_position(p2.pos - v, true);
 
-                let max_length = *elasticity * (*length) / 100.;
+                let max_length = *elasticity / 100.;
                 if 2. * overlap.abs() > max_length {
-                    *durability -= 2. * overlap.abs() / max_length - 1.; // substract the amount of percent max_length was exceeded
+                    *durability -= 2. * overlap.abs() - max_length; // substract the amount of units max_length was exceeded
                 }
             }
         }
