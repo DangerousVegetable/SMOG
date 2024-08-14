@@ -50,7 +50,7 @@ pub mod server {
             let listener = TcpListener::bind(addr).await?;
             let accept_players = Arc::new(AtomicBool::new(true));
 
-            let map = GameMap::init_from_file(&map, RELATIVE_MAPS_PATH);
+            let map = GameMap::init_from_file(&map, RELATIVE_MAPS_PATH).unwrap();
 
             let running = accept_players.clone();
             let lobby_task: JoinHandle<Lobby> = tokio::spawn(async move {

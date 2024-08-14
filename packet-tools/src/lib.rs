@@ -9,7 +9,6 @@ pub mod game_packets;
 pub mod client_packets;
 pub mod server_packets;
 
-pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 pub trait Packet<const SIZE: usize>: Clone + Copy + Send + Sync + 'static + std::fmt::Debug {
     fn to_bytes(&self) -> [u8; SIZE];
     fn from_bytes(value: &[u8; SIZE]) -> Self;

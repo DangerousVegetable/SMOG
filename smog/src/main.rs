@@ -29,7 +29,7 @@ fn setup_simulation(mut commands: Commands, client: Res<Client>, asset_server: R
     // setup simulation
     let tank = RawPlayerModel::generate_tank();
     let lobby = &client.0.lobby;
-    let map_loader = MapLoader::init_from_file(&lobby.map, &asset_server);
+    let map_loader = MapLoader::init_from_file(&lobby.map, &asset_server).unwrap(); // TODO: error handling
     commands.insert_resource(SimulationTextures {
         textures: map_loader.textures,
         background: map_loader.background,

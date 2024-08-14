@@ -2734,6 +2734,7 @@ dependencies = [
 name = "map-editor"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bevy",
  "common",
  "image",

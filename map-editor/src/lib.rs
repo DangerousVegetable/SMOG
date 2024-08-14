@@ -317,6 +317,7 @@ pub mod constructor {
 pub mod map {
     use std::path::{Path, PathBuf};
 
+    use anyhow::Result;
     use bevy::{
         asset::{AssetServer, Handle},
         math::Vec2,
@@ -382,12 +383,12 @@ pub mod map {
             Some(path)
         }
 
-        pub fn init_from_file<P: AsRef<Path>>(name: &str, base_path: P) -> Self {
+        pub fn init_from_file<P: AsRef<Path>>(name: &str, base_path: P) -> Result<Self> {
             let mut map_path = PathBuf::from(base_path.as_ref());
             map_path.push(name);
             map_path.push(MAP_FILE);
             let map_bytes =
-                std::fs::read(&map_path).expect(&format! {"Map {map_path:?} not found"});
+                std::fs::read(&map_path)?;
             Map::deserialize(&map_bytes)
         }
 
@@ -395,8 +396,8 @@ pub mod map {
             postcard::to_stdvec(&self).unwrap()
         }
 
-        pub fn deserialize(bytes: &[u8]) -> Self {
-            postcard::from_bytes(bytes).unwrap()
+        pub fn deserialize(bytes: &[u8]) -> Result<Self> {
+            anyhow::Ok(postcard::from_bytes(bytes)?)
         }
     }
 
@@ -410,13 +411,12 @@ pub mod map {
         pub fn init_from_file(
             name: &str,
             asset_server: &AssetServer,
-        ) -> Self {
+        ) -> Result<Self> {
             let mut map_path = PathBuf::from(RELATIVE_MAPS_PATH);
             map_path.push(name);
             map_path.push(MAP_FILE);
-            let map_bytes =
-                std::fs::read(&map_path).expect(&format! {"Map {map_path:?} not found"});
-            let map = Map::deserialize(&map_bytes);
+            let map_bytes = std::fs::read(&map_path)?;
+            let map = Map::deserialize(&map_bytes)?;
             let textures = map
                 .texture_paths(ASSETS_MAPS_PATH)
                 .into_iter()
@@ -424,14 +424,14 @@ pub mod map {
                 .collect();
             let background = map.background_path(ASSETS_MAPS_PATH)
                 .map(|path| asset_server.load(path));
-            Self { map, textures, background }
+            anyhow::Ok(Self { map, textures, background })
         }
 
-        pub fn map_exists<P: AsRef<Path>>(name: &str, base_path: P) -> bool {
+        pub fn map_exists<P: AsRef<Path>>(name: &str, base_path: P) -> bool { // TODO: change this function to try to construct a map
             let mut map_path = PathBuf::from(base_path.as_ref());
             map_path.push(name);
             map_path.push("map.smog");
-            map_path.exists()
+            map_path.exists() 
         }
     }
 }
@@ -439,6 +439,7 @@ pub mod map {
 pub mod serde {
     use std::path::{Path, PathBuf};
 
+    use anyhow::Result;
     use bevy::asset::AssetServer;
     use image::Rgba;
     use serde::{Deserialize, Serialize};
@@ -581,8 +582,8 @@ pub mod serde {
             postcard::to_stdvec(&self).unwrap()
         }
 
-        pub fn deserialize(bytes: &[u8]) -> Self {
-            postcard::from_bytes(bytes).unwrap()
+        pub fn deserialize(bytes: &[u8]) -> Result<Self> {
+            anyhow::Ok(postcard::from_bytes(bytes)?)
         }
     }
 }

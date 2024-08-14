@@ -2,6 +2,7 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::PathBuf;
 
+use anyhow::Result;
 use bevy::asset::AssetPath;
 use bevy::input::mouse::MouseWheel;
 use bevy::math::vec2;
@@ -269,7 +270,7 @@ fn update_ui_system(mut query: Query<(&mut Text, &TextMarker)>, constructor: Que
 struct Constructor(MapConstructor, usize);
 
 #[derive(Component)]
-struct ConstructorUpdate(Task<MapConstructor>);
+struct ConstructorUpdate(Task<Result<MapConstructor>>);
 
 fn setup(mut commands: Commands, textures: Res<SimulationTextures>) {
     // create constructor entity
@@ -417,17 +418,18 @@ fn drag_and_drop_system(
             return;
         };
 
-        if path_buf.extension().unwrap() == "smoge" {
-            let base_path = path_buf.clone();
-            let asset_server = asset_server.clone();
-            let task = IoTaskPool::get().spawn(async move {
-                let bytes = fs::read(&base_path)
-                    .expect(&format!("Unable to read contents of {base_path:?}"));
-                let constructor = SerdeMapConstructor::deserialize(&bytes);
-                constructor.to_constructor(base_path, &asset_server)
-            });
-            commands.spawn(ConstructorUpdate(task));
-            return;
+        if let Some(ext) = path_buf.extension() {
+            if ext == "smoge" {
+                let base_path = path_buf.clone();
+                let asset_server = asset_server.clone();
+                let task = IoTaskPool::get().spawn(async move {
+                    let bytes = fs::read(&base_path)?;
+                    let constructor = SerdeMapConstructor::deserialize(&bytes)?;
+                    anyhow::Ok(constructor.to_constructor(base_path, &asset_server))
+                });
+                commands.spawn(ConstructorUpdate(task));
+                return;
+            }
         }
 
         match state.get() {
@@ -464,24 +466,30 @@ fn handle_constructor_update(
     for (entity, mut task) in &mut update_task {
         if let Some(map_constructor) = block_on(poll_once(&mut task.0)) {
             // update constructor
-            constructor.0 = map_constructor;
-            commands.entity(entity).despawn();
+            match map_constructor {
+                Ok(map_constructor) => {
+                    constructor.0 = map_constructor;
+                    commands.entity(entity).despawn();
 
-            // remove old texture buttons
-            for (entity, action) in &buttons {
-                match action {
-                    ButtonAction::RemoveTexture(_, _) => {
-                        commands.entity(entity).despawn_recursive()
+                    // remove old texture buttons
+                    for (entity, action) in &buttons {
+                        match action {
+                            ButtonAction::RemoveTexture(_, _) => {
+                                commands.entity(entity).despawn_recursive()
+                            }
+                            _ => (),
+                        }
                     }
-                    _ => (),
-                }
-            }
 
-            // adding new textures
-            next_state.set(AppState::PendingTextures(
-                constructor.0.textures[SimulationTextures::SIMULATION_TEXTURES.len()..].to_vec(),
-            ));
-            info!("Map loaded!");
+                    // adding new textures
+                    next_state.set(AppState::PendingTextures(
+                        constructor.0.textures[SimulationTextures::SIMULATION_TEXTURES.len()..]
+                            .to_vec(),
+                    ));
+                    info!("Map loaded!");
+                }
+                Err(e) => error!("{e}"),
+            }
         }
     }
 }
@@ -808,71 +816,71 @@ fn control_system(
         print!("name (without spaces) << ");
         let name: String = read!();
         constructor.0.name = name;
-        save_map(&mut constructor.0, &image_assets);
+        let _ = save_map(&mut constructor.0, &image_assets);
     }
 }
 
-fn save_textures(map: &Map, textures: Vec<Image>) {
+fn save_textures(map: &Map, textures: Vec<Image>) -> Result<()> {
     let texture_paths = map.texture_paths(RELATIVE_MAPS_PATH);
     for (i, texture) in textures.into_iter().enumerate() {
         let image: RgbaImage = texture.try_into_dynamic().unwrap().to_rgba8();
-        image
-            .save(&texture_paths[i])
-            .expect("Error while saving texture");
+        image.save(&texture_paths[i])?;
     }
+    Ok(())
 }
 
-fn save_background(map: &Map, background: Option<Image>) {
+fn save_background(map: &Map, background: Option<Image>) -> Result<()> {
     let Some(background_path) = map.background_path(RELATIVE_MAPS_PATH) else {
-        return;
+        return Ok(());
     };
-    background.map(|background| {
+    background.map_or(anyhow::Ok(()), |background| {
         let image: RgbaImage = background.try_into_dynamic().unwrap().to_rgba8();
-        image
-            .save(&background_path)
-            .expect("Error while saving background");
-    });
+        image.save(&background_path)?;
+        Ok(())
+    })
 }
 
-fn save_map(constructor: &mut MapConstructor, image_assets: &Assets<Image>) {
+fn save_map(constructor: &mut MapConstructor, image_assets: &Assets<Image>) -> Result<()> {
     let serde_constructor = SerdeMapConstructor::from_constructor(&constructor);
     let map = constructor.map();
     let textures: Vec<Image> = constructor
         .textures
         .iter()
-        .map(|handle| image_assets.get(handle).unwrap().clone())
+        .map(|handle| image_assets.get(handle).unwrap().clone()) // TODO: error handling
         .collect();
     let background: Option<Image> = constructor
         .background
         .as_ref()
-        .map(|handle| image_assets.get(handle).unwrap().clone());
+        .map(|handle| image_assets.get(handle).unwrap().clone()); // TODO: error handling
 
     IoTaskPool::get()
         .spawn(async move {
             let mut base_path = PathBuf::from(RELATIVE_MAPS_PATH);
             base_path.push(&map.name);
-            fs::create_dir_all(&base_path).expect("Error while creating map directory");
+            fs::create_dir_all(&base_path)?;
 
-            save_textures(&map, textures);
+            save_textures(&map, textures).map_err(|e| {error!{"{e}"}; e})?;
             info!("Textures saved!");
 
-            save_background(&map, background);
+            save_background(&map, background).map_err(|e| {error!{"{e}"}; e})?;
             info!("Background saved!");
 
             base_path.push("map.smog");
-            File::create(&base_path)
-                .and_then(|mut file| file.write(&map.serialize()))
-                .expect("Error while writing map to file");
+            File::create(&base_path).and_then(|mut file| file.write(&map.serialize()))
+                .map_err(|e| {error!{"{e}"}; e})?;
             info!("Map \"{}\" saved!", map.name);
 
             base_path.pop();
             base_path.push("map.smoge");
             File::create(&base_path)
                 .and_then(|mut file| file.write(&serde_constructor.serialize()))
-                .expect("Error while writing map layout to file");
+                .map_err(|e| {error!{"{e}"}; e})?;
+
             info!("Map layout \"{}\" saved!", map.name);
+            anyhow::Ok(())
         })
         .detach();
+    anyhow::Ok(())
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash, States)]
