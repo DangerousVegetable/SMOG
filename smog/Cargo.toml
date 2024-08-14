@@ -7,10 +7,11 @@ edition = "2021"
 bevy = "0.14.0"
 tokio = { version = "1.39.2", features = ["full"] }
 crossbeam-channel = "0.5.13"
+common = { path = "../common" }
+bevy_simple_text_input = { git = "https://github.com/DangerousVegetable/bevy_simple_text_input", branch = "dev"}
 anyhow = "1.0.86"
 packet-tools = { path = "../packet-tools" }
 server = { path = "../server" }
 solver = { path = "../solver" }
 render = { path = "../render" }
 map-editor = { path = "../map-editor" }
-common = { path = "../common" }
