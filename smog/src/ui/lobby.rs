@@ -57,7 +57,7 @@ fn build(commands: &mut Commands, asset_server: &Res<AssetServer>) -> Entity {
         .with_children(|parent| {
             parent.spawn(node_bundle).with_children(|parent| {
                 parent.spawn(TextBundle::from_section(
-                    "Waiting for host to start the game...",
+                    "Waiting for the host to start the game...",
                     text_style,
                 ));
             });

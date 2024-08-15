@@ -19,7 +19,7 @@ use bevy::{
     DefaultPlugins,
 };
 
-use common::RELATIVE_MAPS_PATH;
+use common::{MAX_TEAMS, RELATIVE_MAPS_PATH};
 use image::RgbaImage;
 use map_editor::map::{Map, Spawn};
 use map_editor::serde::SerdeMapConstructor;
@@ -28,6 +28,9 @@ use text_io::{read, try_read};
 use map_editor::constructor::MapConstructor;
 use render::{RenderSimulationPlugin, RenderedSimulation, SimulationCamera, SimulationTextures};
 use solver::{Link, Solver};
+
+const DURABILITY_DEFAULT: f32 = 1.;
+const ELASTICITY_DEFAULT: f32 = 5.;
 
 #[derive(Component)]
 struct TextureColumn;
@@ -384,7 +387,7 @@ fn spawn_sprites_system(
         *spawn_ind = SpawnIndex(i);
         let spawn = &constructor.0.spawns[i];
         *transform = Transform::from_translation(spawn.pos.extend(-0.1));
-        sprite.color = Color::hsl(360. * spawn.team as f32 / 4., 0.95, 0.7);
+        sprite.color = Color::hsl(360. * spawn.team as f32 / MAX_TEAMS as f32, 0.95, 0.7);
         last_sprite = Some(i);
     }
     let start = last_sprite.map_or(0, |ind| ind + 1);
@@ -501,8 +504,8 @@ fn add_layer_from_image(constructor: &mut Constructor, img: &Image) {
     layer.init_from_image(img.clone());
     layer.link = Some(Link::Rigid {
         length: 1.,
-        durability: 1.,
-        elasticity: 5.,
+        durability: DURABILITY_DEFAULT,
+        elasticity: ELASTICITY_DEFAULT,
     });
     layer.strength = 0.5;
 
@@ -642,7 +645,7 @@ fn control_system(
     }
 
     // layer controls
-    let layers_num = constructor.0.layers.len();
+    let layers_num = constructor.0.layers.len(); // TODO: make this code readable
     if layers_num > 0 {
         if keyboard.just_pressed(KeyCode::ArrowLeft) {
             let ind = (constructor.1 + (layers_num - 1)) % layers_num;
@@ -697,7 +700,7 @@ fn control_system(
                     error!("Incorrect input!");
                     return;
                 };
-                let elasticity = layer.link.map_or(1., |l| l.elasticity());
+                let elasticity = layer.link.map_or(ELASTICITY_DEFAULT, |l| l.elasticity());
                 layer.link = Some(Link::Rigid {
                     length: 1.,
                     durability: read,
@@ -712,7 +715,7 @@ fn control_system(
                     error!("Incorrect input!");
                     return;
                 };
-                let durability = layer.link.map_or(1., |l| l.durability());
+                let durability = layer.link.map_or(DURABILITY_DEFAULT, |l| l.durability());
                 layer.link = Some(Link::Rigid {
                     length: 1.,
                     durability,
@@ -771,33 +774,24 @@ fn control_system(
         })
         .map(|ray| ray.origin.truncate())
     {
-        if keyboard.just_pressed(KeyCode::Digit1) {
-            constructor.0.spawns.push(Spawn {
-                pos: cursor_world_position,
-                team: 0,
-            });
-            info!("Spawn added!");
-        }
-        if keyboard.just_pressed(KeyCode::Digit2) {
-            constructor.0.spawns.push(Spawn {
-                pos: cursor_world_position,
-                team: 1,
-            });
-            info!("Spawn added!");
-        }
-        if keyboard.just_pressed(KeyCode::Digit3) {
-            constructor.0.spawns.push(Spawn {
-                pos: cursor_world_position,
-                team: 2,
-            });
-            info!("Spawn added!");
-        }
-        if keyboard.just_pressed(KeyCode::Digit4) {
-            constructor.0.spawns.push(Spawn {
-                pos: cursor_world_position,
-                team: 3,
-            });
-            info!("Spawn added!");
+        let digits = vec![
+            KeyCode::Digit1,
+            KeyCode::Digit2,
+            KeyCode::Digit3,
+            KeyCode::Digit4,
+            KeyCode::Digit5,
+            KeyCode::Digit6,
+            KeyCode::Digit7,
+            KeyCode::Digit8,
+        ];
+        for (team, key) in digits.into_iter().enumerate() {
+            if keyboard.just_pressed(key) {
+                constructor.0.spawns.push(Spawn {
+                    pos: cursor_world_position,
+                    team,
+                });
+                info!("Spawn added!");
+            }
         }
 
         if mouse.just_pressed(MouseButton::Right) {
@@ -859,22 +853,35 @@ fn save_map(constructor: &mut MapConstructor, image_assets: &Assets<Image>) -> R
             base_path.push(&map.name);
             fs::create_dir_all(&base_path)?;
 
-            save_textures(&map, textures).map_err(|e| {error!{"{e}"}; e})?;
+            save_textures(&map, textures).map_err(|e| {
+                error! {"{e}"};
+                e
+            })?;
             info!("Textures saved!");
 
-            save_background(&map, background).map_err(|e| {error!{"{e}"}; e})?;
+            save_background(&map, background).map_err(|e| {
+                error! {"{e}"};
+                e
+            })?;
             info!("Background saved!");
 
             base_path.push("map.smog");
-            File::create(&base_path).and_then(|mut file| file.write(&map.serialize()))
-                .map_err(|e| {error!{"{e}"}; e})?;
+            File::create(&base_path)
+                .and_then(|mut file| file.write(&map.serialize()))
+                .map_err(|e| {
+                    error! {"{e}"};
+                    e
+                })?;
             info!("Map \"{}\" saved!", map.name);
 
             base_path.pop();
             base_path.push("map.smoge");
             File::create(&base_path)
                 .and_then(|mut file| file.write(&serde_constructor.serialize()))
-                .map_err(|e| {error!{"{e}"}; e})?;
+                .map_err(|e| {
+                    error! {"{e}"};
+                    e
+                })?;
 
             info!("Map layout \"{}\" saved!", map.name);
             anyhow::Ok(())

@@ -1,22 +1,23 @@
+use bevy::math::{vec2, vec3};
 use bevy::{ 
     input::mouse::MouseWheel, prelude::*,
     render::camera::ScalingMode, window::PrimaryWindow,
 };
 
+use common::MAX_TEAMS;
 use map_editor::map::MapLoader;
-
 use render::{RenderedSimulation, SimulationCamera, SimulationTextures};
-
-use crate::{display_error, Client, GameState};
-
 use packet_tools::game_packets::GamePacket;
-
+use crate::{display_error, Client, GameState};
 use crate::controller::{model::RawPlayerModel, Controller};
 
 const SUB_TICKS: usize = 8;
 
 #[derive(Component)]
 pub struct GameController(pub Controller);
+
+#[derive(Component)]
+struct PlayerBanner(u8);
 
 fn setup_simulation(
     mut commands: Commands,
@@ -65,6 +66,21 @@ fn setup_simulation(
     let mut camera_projection = camera.single_mut();
     *camera_projection = projection;
 
+    // spawn player banners
+    for (id, name, _) in players.iter() {
+        let team = spawns[*id as usize].team;
+        commands
+            .spawn(Text2dBundle {
+                text: Text::from_section(name.clone(), TextStyle {
+                    font_size: 60., 
+                    color: Color::hsl(360. * team as f32 / MAX_TEAMS as f32, 1., 0.5),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .insert(PlayerBanner(*id));
+    }
+
     // spawn controller
     commands
         .spawn(SpatialBundle {
@@ -104,6 +120,18 @@ fn update_physics(
             next_state.set(GameState::EndGame);
             return;
         }
+    }
+}
+
+fn update_banners(
+    mut banners: Query<(&mut Transform, &PlayerBanner)>,
+    simulation: Query<(&RenderedSimulation, &GameController)>
+) {
+    let (simulation, controller) = simulation.single();
+    for (mut transform, id) in &mut banners {
+        let player = controller.0.get_player(id.0).unwrap();
+        let pos = controller.0.get_player_pos(player, &simulation.0) + vec2(0., 10.);
+        *transform = Transform::from_translation(pos.extend(-0.5)).with_scale(vec3(0.1, 0.1, 1.));
     }
 }
 
@@ -192,20 +220,21 @@ fn control_system(
     if let Some(cursor_world_position) = window.cursor_position().and_then(|cursor| {
         camera.viewport_to_world_2d(&GlobalTransform::from(camera_transform.clone()), cursor)
     }) {
-        if keyboard.pressed(KeyCode::Digit1) {
-            controller.0.player.projectile = 0;
-        }
-        if keyboard.pressed(KeyCode::Digit2) {
-            controller.0.player.projectile = 1;
-        }
-        if keyboard.pressed(KeyCode::Digit3) {
-            controller.0.player.projectile = 2;
-        }
-        if keyboard.pressed(KeyCode::Digit4) {
-            controller.0.player.projectile = 3;
-        }
-        if keyboard.pressed(KeyCode::Digit5) {
-            controller.0.player.projectile = 4;
+        let digits = vec![
+            KeyCode::Digit1,
+            KeyCode::Digit2,
+            KeyCode::Digit3,
+            KeyCode::Digit4,
+            KeyCode::Digit5,
+            KeyCode::Digit6,
+            KeyCode::Digit7,
+            KeyCode::Digit8,
+        ];
+
+        for (projectile, key) in digits.into_iter().enumerate() {
+            if keyboard.pressed(key) {
+                controller.0.player.projectile = projectile as u8;
+            }
         }
 
         if shift_pressed {
@@ -216,6 +245,7 @@ fn control_system(
             packets.extend(&controller.0.fire());
         }
 
+        // debug command
         if keyboard.just_released(KeyCode::Digit9) {
             let _ = RawPlayerModel::generate_tank()
                 .place_in_solver(cursor_world_position, &mut simulation.0);
@@ -228,8 +258,11 @@ fn control_system(
     }
 }
 
-fn close_connection(mut commands: Commands) {
+fn exit_system(mut commands: Commands, banners: Query<Entity, With<PlayerBanner>>) {
     commands.remove_resource::<Client>();
+    for banner in &banners {
+        commands.entity(banner).despawn_recursive();
+    }
 }
 
 pub struct GamePlugin;
@@ -238,8 +271,8 @@ impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Time::<Fixed>::from_hz(64.0))
             .add_systems(OnEnter(GameState::InGame), setup_simulation)
-            .add_systems(OnExit(GameState::InGame), close_connection)
-            .add_systems(Update, (control_system).run_if(in_state(GameState::InGame)))
+            .add_systems(OnExit(GameState::InGame), exit_system)
+            .add_systems(Update, (control_system, update_banners).run_if(in_state(GameState::InGame)))
             .add_systems(
                 FixedUpdate,
                 (update_physics).run_if(in_state(GameState::InGame)),

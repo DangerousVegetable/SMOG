@@ -75,6 +75,10 @@ impl Controller {
         self.players.iter().find(|p| p.id == id)
     }
 
+    pub fn get_player_pos(&self, player: &Player, solver: &Solver) -> Vec2 {
+        solver.particles[player.model.center].pos
+    }
+
     pub fn get_winners(&self, solver: &Solver) -> Option<(usize, Vec<&Player>)> {
         let mut team_num = HashMap::<usize, Vec<&Player>>::new();
         for p in self.players.iter() {
