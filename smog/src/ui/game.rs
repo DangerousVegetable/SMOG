@@ -198,7 +198,8 @@ fn control_system(
         packets.extend(&controller.0.move_tank(1.));
     } else if keyboard.pressed(KeyCode::KeyD) {
         packets.extend(&controller.0.move_tank(-1.));
-    } else if keyboard.just_released(KeyCode::KeyA) || keyboard.just_released(KeyCode::KeyD) {
+    } 
+    if keyboard.just_released(KeyCode::KeyA) || keyboard.just_released(KeyCode::KeyD) {
         packets.extend(&controller.0.move_tank(0.));
     }
     if keyboard.just_released(KeyCode::KeyW) {
@@ -209,10 +210,12 @@ fn control_system(
     }
     // rotation
     if keyboard.pressed(KeyCode::KeyQ) {
-        packets.extend(&controller.0.rotate_tank(false));
-    }
-    if keyboard.pressed(KeyCode::KeyE) {
-        packets.extend(&controller.0.rotate_tank(true));
+        packets.extend(&controller.0.rotate_tank(-0.04));
+    } else if keyboard.pressed(KeyCode::KeyE) {
+        packets.extend(&controller.0.rotate_tank(0.04));
+    } 
+    if keyboard.just_released(KeyCode::KeyQ) || keyboard.just_released(KeyCode::KeyE) {
+        packets.extend(&controller.0.rotate_tank(0.))
     }
     // dash
     if keyboard.pressed(KeyCode::Space) {
@@ -242,16 +245,13 @@ fn control_system(
 
         if shift_pressed {
             packets.extend(&controller.0.move_muzzle(cursor_world_position));
+        } 
+        if keyboard.just_released(KeyCode::ShiftLeft){
+            packets.extend(&controller.0.reset_muzzle());
         }
 
         if mouse.pressed(MouseButton::Left) {
             packets.extend(&controller.0.fire());
-        }
-
-        // debug command
-        if keyboard.just_released(KeyCode::Digit9) {
-            let _ = RawPlayerModel::generate_tank()
-                .place_in_solver(cursor_world_position, &mut simulation.0);
         }
     }
 

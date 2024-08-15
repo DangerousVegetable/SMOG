@@ -22,9 +22,11 @@ pub struct Player {
 
     // timers
     pub reload_timer: TickTimer,
-    pub muzzle_timer: TickTimer,
-    pub rotate_timer: TickTimer,
     pub dash_timer: TickTimer,
+
+    // utils
+    pub thrust: (f32, f32),
+    pub aim: Option<Vec2>,
 }
 
 impl Player {
@@ -59,6 +61,7 @@ impl Player {
 
 #[derive(Clone)]
 pub struct Controller {
+    pub tick: u128,
     pub player: Player,
     pub players: Vec<Player>,
 }
@@ -66,6 +69,7 @@ pub struct Controller {
 impl Controller {
     pub fn new(id: u8, name: String, model: PlayerModel, players: Vec<(u8, String, PlayerModel)>, spawns: &Vec<Spawn>) -> Self {
         Self {
+            tick: 0,
             player: Player::new(id, spawns[id as usize].team, name, model),
             players: players.into_iter().map(|p| Player::new(p.0, spawns[p.0 as usize].team, p.1, p.2)).collect(),
         }
@@ -73,6 +77,10 @@ impl Controller {
 
     pub fn get_player(&self, id: u8) -> Option<&Player> {
         self.players.iter().find(|p| p.id == id)
+    }
+
+    pub fn get_player_mut(&mut self, id: u8) -> Option<&mut Player> {
+        self.players.iter_mut().find(|p| p.id == id)
     }
 
     pub fn get_player_pos(&self, player: &Player, solver: &Solver) -> Vec2 {
@@ -103,9 +111,8 @@ impl Controller {
     }
 
     fn update_timers(&mut self) {
+        self.tick += 1;
         self.player.reload_timer.update();
-        self.player.muzzle_timer.update();
-        self.player.rotate_timer.update();
         self.player.dash_timer.update();
     }
 
@@ -125,9 +132,57 @@ impl Controller {
         }
     }
 
+    fn update_players(&self, solver: &mut Solver) {
+        for player in &self.players {
+            if !Self::player_alive(player, solver) { continue; }
+
+            let left_motor = player.model.right_motors.first().unwrap();
+            let right_motor = player.model.right_motors.last().unwrap();
+
+            let center = solver.particles[player.model.center];
+            let (center_base, _, _) = solver.connections[player.model.center_connection];
+            let center_base = solver.particles[center_base];
+            let direction_up = center.pos - center_base.pos;
+
+            // thrust
+            if player.thrust.0 != 0. || player.thrust.1 != 0. {
+                solver.particles[*left_motor].set_velocity(player.thrust.0*direction_up);
+                solver.particles[*right_motor].set_velocity(player.thrust.1*direction_up);
+            }
+
+            // aim
+            if self.tick % 8 == 0 {
+                let Some(desired_pos) = player.aim else { continue };
+                let mut desired_pos = (desired_pos - center.pos).normalize() * 6. + center.pos;
+                if (desired_pos - center.pos).dot(direction_up) < -0.1 {
+                    desired_pos = f32::signum(direction_up.perp_dot(desired_pos - center.pos))
+                        * direction_up.perp()
+                        * 6.
+                        + center.pos;
+                }
+    
+                let muzzle = solver.particles[player.model.muzzle];
+                let mut angle = (muzzle.pos - center.pos).angle_between(desired_pos - center.pos);
+                angle = angle.min(0.04).max(-0.04);
+                desired_pos = (muzzle.pos - center.pos)
+                    .rotate(Vec2::from_angle(angle))
+                    .normalize()
+                    * 6.
+                    + center.pos;
+    
+                player.model.pistols.iter().for_each(|pistol| {
+                    let (i, _, link) = &mut solver.connections[*pistol];
+                    let base = solver.particles[*i];
+                    *link = link.with_length(desired_pos.distance(base.pos));
+                });
+            }
+        }
+    }
+
     pub fn handle_packets(&mut self, solver: &mut Solver, packets: &Vec<IndexedGamePacket>) {
         self.update_timers();
         self.update_player_colors(solver);
+        self.update_players(solver);
 
         for packet in packets {
             self.handle_packet(solver, packet);
@@ -135,16 +190,13 @@ impl Controller {
     }
 
     pub fn handle_packet(&mut self, solver: &mut Solver, packet: &IndexedGamePacket) {
-        let Some(player) = self.get_player(packet.id) else {
+        let Some(player) = self.get_player_mut(packet.id) else {
             return;
         };
         // check if player's tank is active
         if !Self::player_alive(player, solver) { return; }
 
         let center = solver.particles[player.model.center];
-        let (center_base, _, _) = solver.connections[player.model.center_connection];
-        let center_base = solver.particles[center_base];
-        let direction_up = center.pos - center_base.pos;
 
         match packet.contents {
             GamePacket::Motor(ind, acc) => {
@@ -163,35 +215,13 @@ impl Controller {
                 }
             }
             GamePacket::Thrust(left, right) => {
-                let left_motor = player.model.right_motors.first().unwrap();
-                let right_motor = player.model.right_motors.last().unwrap();
-
-                solver.particles[*left_motor].set_velocity(left*direction_up);
-                solver.particles[*right_motor].set_velocity(right*direction_up);
+                player.thrust = (left, right);
             }
             GamePacket::Muzzle(desired_pos) => {
-                let mut desired_pos = (desired_pos - center.pos).normalize() * 6. + center.pos;
-                if (desired_pos - center.pos).dot(direction_up) < -0.1 {
-                    desired_pos = f32::signum(direction_up.perp_dot(desired_pos - center.pos))
-                        * direction_up.perp()
-                        * 6.
-                        + center.pos;
-                }
-
-                let muzzle = solver.particles[player.model.muzzle];
-                let mut angle = (muzzle.pos - center.pos).angle_between(desired_pos - center.pos);
-                angle = angle.min(0.04).max(-0.04);
-                desired_pos = (muzzle.pos - center.pos)
-                    .rotate(Vec2::from_angle(angle))
-                    .normalize()
-                    * 6.
-                    + center.pos;
-
-                player.model.pistols.iter().for_each(|pistol| {
-                    let (i, _, link) = &mut solver.connections[*pistol];
-                    let base = solver.particles[*i];
-                    *link = link.with_length(desired_pos.distance(base.pos));
-                });
+                player.aim = Some(desired_pos);
+            }
+            GamePacket::ResetMuzzle => {
+                player.aim = None;
             }
             GamePacket::Fire(bullet) => {
                 let center = &solver.particles[player.model.center];
@@ -218,7 +248,7 @@ impl Controller {
                     solver.particles[i].add_velocity(-recoil * muzzle_dir);
                 });
             }
-            _ => (),
+            GamePacket::None => ()
         }
     }
 
@@ -242,11 +272,12 @@ impl Controller {
             .collect()
     }
 
-    pub fn move_muzzle(&mut self, desired_pos: Vec2) -> Vec<GamePacket> {
-        if self.player.muzzle_timer.not_ready() { return vec![] };
-
-        self.player.muzzle_timer.set(8);
+    pub fn move_muzzle(&self, desired_pos: Vec2) -> Vec<GamePacket> {
         vec![GamePacket::Muzzle(desired_pos)]
+    }
+
+    pub fn reset_muzzle(&self) -> Vec<GamePacket> {
+        vec![GamePacket::ResetMuzzle]
     }
 
     pub fn fire(&mut self) -> Vec<GamePacket> {
@@ -263,17 +294,10 @@ impl Controller {
         vec![GamePacket::Fire(self.player.projectile)]
     }
 
-    pub fn rotate_tank(&mut self, clockwise: bool) -> Vec<GamePacket> {
-        self.player.rotate_timer.map_or(vec![], 8, || {
-            let force = 0.1;
-            let (left, right) = if clockwise {
-                (force, -force)
-            } else {
-                (-force, force)
-            };
-    
-            vec![GamePacket::Thrust(left, right)]
-        })
+    pub fn rotate_tank(&self, force: f32) -> Vec<GamePacket> {
+        let (left, right) = (force, -force);
+
+        vec![GamePacket::Thrust(left, right)]
     }
 
     pub fn dash(&mut self) -> Vec<GamePacket> {

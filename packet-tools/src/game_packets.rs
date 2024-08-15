@@ -11,6 +11,7 @@ pub enum GamePacket {
     Spawn(Vec2),
     Motor(u32, f32),
     Muzzle(Vec2),
+    ResetMuzzle,
     Fire(u8),
     Thrust(f32, f32),
     Dash(f32),
@@ -50,6 +51,10 @@ impl Packet<{PACKET_SIZE}> for GamePacket {
                 bytes.extend(coeff.to_be_bytes());
                 bytes.extend(&[0;4]);
             }
+            Self::ResetMuzzle => {
+                bytes.push(7);
+                bytes.extend(&[0;8]);
+            }
             Self::None => bytes = vec![0u8; 9]
         }
 
@@ -87,6 +92,9 @@ impl Packet<{PACKET_SIZE}> for GamePacket {
                 let coeff = f32::from_be_bytes(value[1..5].try_into().unwrap());
                 Self::Dash(coeff)
             },
+            7 => {
+                Self::ResetMuzzle
+            }
             _ => {
                 error!("receive damaged packet from server");
                 Self::None
@@ -107,6 +115,7 @@ mod tests{
             GamePacket::Muzzle(vec2(10.9, 32.)), 
             GamePacket::Fire(10),
             GamePacket::Thrust(3., -1.),
+            GamePacket::ResetMuzzle,
             GamePacket::Dash(210.), 
         ];
         for p in v {
