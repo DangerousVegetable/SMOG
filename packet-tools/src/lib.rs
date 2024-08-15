@@ -180,6 +180,15 @@ where
         head.append(&mut vec![vec![]; num - head.len()]);
         head
     }
+
+    pub fn len(&self) -> usize {
+        self.queue.len()
+    }
+
+    pub fn time_since_take(&self) -> Duration {
+        let now = Instant::now();
+        now - self.time
+    }
 }
 
 #[cfg(test)]

@@ -21,6 +21,7 @@ pub mod lobby {
 pub mod server {
     use anyhow::Result;
     use common::{BACKGROUND_FILE, MAP_FILE, RELATIVE_MAPS_PATH};
+    use crossbeam_channel::unbounded;
     use log::{info, trace, warn};
     use map_editor::map::Map as GameMap;
     use packet_tools::{
@@ -29,7 +30,7 @@ pub mod server {
     };
     use std::{
         path::PathBuf,
-        sync::{atomic::AtomicBool, Arc, Mutex},
+        sync::{atomic::AtomicBool, Arc},
         time::Duration,
     };
     use tokio::{
@@ -182,9 +183,8 @@ pub mod server {
                 let _ = player.stream.write_packet(&ServerPacket::StartGame).await;
             }
 
-            let packet_queue = Arc::new(Mutex::new(TimedQueue::<
-                IndexedPacket<[u8; PACKET_SIZE], PACKET_SIZE>,
-            >::new(self.slot_duration)));
+            let (packet_write, packet_read) = unbounded();
+
             {
                 let mut listen_tasks = Vec::new();
                 info!("Start listening to incoming packets");
@@ -192,7 +192,7 @@ pub mod server {
                 for player in self.players.iter() {
                     let running = self.running.clone();
                     let player = player.clone();
-                    let queue = packet_queue.clone();
+                    let packet_write = packet_write.clone();
                     let listen_task = tokio::spawn(async move {
                         while running.load(std::sync::atomic::Ordering::Relaxed) {
                             let _ = player.stream.readable().await;
@@ -212,7 +212,7 @@ pub mod server {
                                         player.stream.peer_addr().unwrap()
                                     );
                                     let packet = IndexedPacket::new(player.id as u8, packet);
-                                    queue.lock().unwrap().push(packet);
+                                    packet_write.send(packet).unwrap();
                                 }
                                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                                     continue
@@ -240,8 +240,20 @@ pub mod server {
                 let slots_stored = self.slots_stored;
                 let slot_duration = self.slot_duration;
                 let broadcast_task = tokio::spawn(async move {
+                    let mut packet_queue = TimedQueue::<
+                        IndexedPacket<[u8; PACKET_SIZE], PACKET_SIZE>,
+                    >::new(slot_duration);
+
                     while running.load(std::sync::atomic::Ordering::Relaxed) {
-                        let data = packet_queue.lock().unwrap().take(slots_stored);
+                        while let Ok(packet) = packet_read.try_recv() {
+                            trace!("received: {packet:?}");
+                            packet_queue.push(packet);
+                            if packet_queue.time_since_take() > slot_duration * slots_stored as u32 { break; }
+                        }
+
+                        if packet_queue.time_since_take() < slot_duration * slots_stored as u32 { continue; }
+
+                        let data = packet_queue.take(slots_stored);
                         let bytes = packet_tools::serialize_queue(&data);
 
                         for player in players.iter() {
@@ -262,7 +274,6 @@ pub mod server {
                                 }
                             }
                         }
-                        std::thread::sleep(slot_duration * slots_stored as u32);
                     }
                 });
                 self.send_task = Some(broadcast_task);
