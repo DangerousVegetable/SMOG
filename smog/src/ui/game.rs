@@ -151,7 +151,7 @@ fn control_system(
     mut next_state: ResMut<NextState<GameState>>,
 ) {
     let (camera, mut projection, mut camera_transform) = camera.single_mut();
-    let (mut simulation, mut controller) = simulation.single_mut();
+    let (mut _simulation, mut controller) = simulation.single_mut();
     let window = windows.single();
 
     // camera
