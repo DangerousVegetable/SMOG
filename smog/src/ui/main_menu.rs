@@ -12,8 +12,8 @@ use crate::{
 #[derive(Component)]
 struct MainMenu;
 
-fn spawn(mut commands: Commands, asset_server: Res<AssetServer>, error: Option<Res<GameError>>) {
-    let _menu = build(&mut commands, &asset_server, &error);
+fn spawn(mut commands: Commands, error: Option<Res<GameError>>) {
+    let _menu = build(&mut commands, &error);
 }
 
 fn despawn(mut commands: Commands, main_menu: Query<Entity, With<MainMenu>>) {
@@ -29,7 +29,6 @@ const BACKGROUND_COLOR: Color = Color::srgb(0.15, 0.15, 0.15);
 
 fn build(
     commands: &mut Commands,
-    asset_server: &Res<AssetServer>,
     error: &Option<Res<GameError>>,
 ) -> Entity {
     let text_style = TextStyle {
@@ -42,6 +41,8 @@ fn build(
         width: Val::Px(600.0),
         border: UiRect::all(Val::Px(5.0)),
         padding: UiRect::all(Val::Px(5.0)),
+        align_items: AlignItems::Center,
+        justify_content: JustifyContent::Center,
         ..default()
     };
 

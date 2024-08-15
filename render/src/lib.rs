@@ -423,11 +423,11 @@ pub struct SimulationTextures {
 
 impl SimulationTextures {
     pub const SIMULATION_TEXTURES: [&'static str; 5] = [
-        "particle-empty.png",
-        "particle-sand.png",
-        "particle-metal.png",
-        "particle-motor.png",
-        "particle-spike.png",
+        "textures/particle-empty.png",
+        "textures/particle-sand.png",
+        "textures/particle-metal.png",
+        "textures/particle-motor.png",
+        "textures/particle-spike.png",
     ];
 }
 

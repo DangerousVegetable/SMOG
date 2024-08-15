@@ -374,7 +374,7 @@ fn spawn_sprites_system(
     constructor: Query<&Constructor>,
     mut query: Query<(Entity, &mut Transform, &mut SpawnIndex, &mut Sprite)>,
 ) {
-    let spawn_image = asset_server.load("spawn.png");
+    let spawn_image = asset_server.load("textures/spawn.png");
     let constructor = constructor.single();
     let mut last_sprite = None;
     for (i, (entity, mut transform, mut spawn_ind, mut sprite)) in

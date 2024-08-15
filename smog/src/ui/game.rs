@@ -5,11 +5,14 @@ use bevy::{
 };
 
 use common::MAX_TEAMS;
+use interface::OverlayPlugin;
 use map_editor::map::MapLoader;
 use render::{RenderedSimulation, SimulationCamera, SimulationTextures};
 use packet_tools::game_packets::GamePacket;
 use crate::{display_error, Client, GameState};
 use crate::controller::{model::RawPlayerModel, Controller};
+
+mod interface;
 
 const SUB_TICKS: usize = 8;
 
@@ -269,7 +272,8 @@ pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(Time::<Fixed>::from_hz(64.0))
+        app.add_plugins(OverlayPlugin)
+        .insert_resource(Time::<Fixed>::from_hz(64.0))
             .add_systems(OnEnter(GameState::InGame), setup_simulation)
             .add_systems(OnExit(GameState::InGame), exit_system)
             .add_systems(Update, (control_system, update_banners).run_if(in_state(GameState::InGame)))

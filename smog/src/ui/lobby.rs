@@ -5,8 +5,8 @@ use crate::{display_error, Client, GameState};
 #[derive(Component)]
 struct Lobby;
 
-fn spawn(mut commands: Commands, asset_server: Res<AssetServer>) {
-    let _lobby = build(&mut commands, &asset_server);
+fn spawn(mut commands: Commands) {
+    let _lobby = build(&mut commands);
 }
 
 fn despawn(mut commands: Commands, lobby: Query<Entity, With<Lobby>>) {
@@ -15,12 +15,11 @@ fn despawn(mut commands: Commands, lobby: Query<Entity, With<Lobby>>) {
     }
 }
 
-const _BORDER_COLOR_ACTIVE: Color = Color::srgb(0.75, 0.52, 0.99);
-const BORDER_COLOR_INACTIVE: Color = Color::srgb(0.25, 0.25, 0.25);
+const BORDER_COLOR: Color = Color::srgb(0.25, 0.25, 0.25);
 const TEXT_COLOR: Color = Color::srgb(0.9, 0.9, 0.9);
 const BACKGROUND_COLOR: Color = Color::srgb(0.15, 0.15, 0.15);
 
-fn build(commands: &mut Commands, asset_server: &Res<AssetServer>) -> Entity {
+fn build(commands: &mut Commands) -> Entity {
     let text_style = TextStyle {
         font_size: 40.,
         color: TEXT_COLOR,
@@ -34,7 +33,7 @@ fn build(commands: &mut Commands, asset_server: &Res<AssetServer>) -> Entity {
             padding: UiRect::all(Val::Px(5.0)),
             ..default()
         },
-        border_color: BORDER_COLOR_INACTIVE.into(),
+        border_color: BORDER_COLOR.into(),
         background_color: BACKGROUND_COLOR.into(),
         ..default()
     };
