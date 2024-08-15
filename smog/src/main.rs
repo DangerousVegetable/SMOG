@@ -6,7 +6,7 @@ mod ui;
 use network::client::GameClient;
 use packet_tools::game_packets::{GamePacket, PACKET_SIZE};
 use render::{RenderSimulationPlugin, SimulationCamera};
-use ui::{game::GamePlugin, lobby::LobbyPlugin, main_menu::MainMenuPlugin};
+use ui::{game::GamePlugin, lobby::LobbyPlugin, main_menu::MainMenuPlugin, over::WinScreenPlugin};
 
 mod network;
 mod controller;
@@ -23,11 +23,12 @@ enum GameState {
     Menu,
     InLobby,
     InGame,
+    EndGame,
     Error,
 }
 
 fn setup(mut commands: Commands) {
-    // Spawn a camera with the custom projection
+    // spawn camera
     commands
         .spawn(Camera2dBundle::default())
         .insert(SimulationCamera);
@@ -48,9 +49,7 @@ fn main() {
             ..default()
         }))
         .add_plugins(RenderSimulationPlugin)
-        .add_plugins(MainMenuPlugin)
-        .add_plugins(LobbyPlugin)
-        .add_plugins(GamePlugin)
+        .add_plugins((MainMenuPlugin, LobbyPlugin, GamePlugin, WinScreenPlugin))
         .add_systems(Startup, setup)
         .insert_state(GameState::Menu)
         .run();

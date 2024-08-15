@@ -1,5 +1,6 @@
-use bevy::{color::Color, math::{vec2, vec4, Vec2, Vec4}};
+use bevy::{color::Color, math::{vec2, vec4, Vec2, Vec4}, utils::HashMap};
 
+use map_editor::map::Spawn;
 use model::{PlayerModel, PISTOL_HP, TANK_HP};
 use packet_tools::game_packets::{GamePacket, IndexedGamePacket};
 
@@ -13,6 +14,8 @@ pub mod model;
 #[derive(Clone, Default)]
 pub struct Player {
     pub id: u8,
+    pub team: usize,
+    pub name: String,
     pub model: PlayerModel,
     pub gear: usize,
     pub projectile: u8,
@@ -29,9 +32,11 @@ impl Player {
     const GEAR_POWER: f32 = 2.;
     const MAX_GEAR: usize = 5;
 
-    pub fn new(id: u8, model: PlayerModel) -> Self {
+    pub fn new(id: u8, team: usize, name: String, model: PlayerModel) -> Self {
         Self {
             id,
+            team,
+            name,
             model,
             gear: 0,
             projectile: 0,
@@ -59,15 +64,38 @@ pub struct Controller {
 }
 
 impl Controller {
-    pub fn new(id: u8, model: PlayerModel, players: Vec<(u8, PlayerModel)>) -> Self {
+    pub fn new(id: u8, name: String, model: PlayerModel, players: Vec<(u8, String, PlayerModel)>, spawns: &Vec<Spawn>) -> Self {
         Self {
-            player: Player::new(id, model),
-            players: players.into_iter().map(|p| Player::new(p.0, p.1)).collect(),
+            player: Player::new(id, spawns[id as usize].team, name, model),
+            players: players.into_iter().map(|p| Player::new(p.0, spawns[p.0 as usize].team, p.1, p.2)).collect(),
         }
     }
 
     pub fn get_player(&self, id: u8) -> Option<&Player> {
         self.players.iter().find(|p| p.id == id)
+    }
+
+    pub fn get_winners(&self, solver: &Solver) -> Option<(usize, Vec<&Player>)> {
+        let mut team_num = HashMap::<usize, Vec<&Player>>::new();
+        for p in self.players.iter() {
+            if Self::player_alive(p, solver) {
+                let v = team_num.entry(p.team).or_insert(vec![]);
+                v.push(p);
+            }
+        }
+
+        let team = if team_num.keys().len() == 1 {
+            Some(*team_num.keys().next().unwrap())
+        } else { None };
+
+        team.map(|team| {
+            let players = team_num.remove(&team).unwrap();
+            (team, players)
+        })
+    }
+
+    pub fn player_alive(player: &Player, solver: &Solver) -> bool {
+        solver.connections[player.model.center_connection].2.durability() > 0.
     }
 
     fn update_timers(&mut self) {
@@ -107,9 +135,7 @@ impl Controller {
             return;
         };
         // check if player's tank is active
-        if solver.connections[player.model.center_connection].2.durability() < 0. {
-            return;
-        }
+        if !Self::player_alive(player, solver) { return; }
 
         let center = solver.particles[player.model.center];
         let (center_base, _, _) = solver.connections[player.model.center_connection];

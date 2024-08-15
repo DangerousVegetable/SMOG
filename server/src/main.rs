@@ -4,7 +4,7 @@ use log::{error, info};
 use map_editor::map::{Map as GameMap, Spawn};
 use packet_tools::{game_packets::PACKET_SIZE, server_packets::ServerPacket, UnsizedPacketWrite};
 use server::{lobby::Player, server::{GameServer, LobbyServer}};
-use text_io::{read, scan, try_read, try_scan};
+use text_io::try_scan;
 use std::{collections::HashMap, io::{stdout, Write}, time::Duration};
 
 #[tokio::main]

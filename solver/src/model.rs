@@ -37,7 +37,6 @@ pub const SHIFT_X: Vec2 = vec2(1., 0.);
 pub const SHIFT_Y: Vec2 = vec2(0.5, 0.86602540378443864676372317075294);
 
 
-#[allow(unused_mut)]
 #[macro_export]
 macro_rules! model {
     ( $($p:expr $(;$l:expr)? => $(.offset:$offset:expr,)? .hex:$hex:literal [$($(@$part_var:ident =)? $x:expr, $y:expr);*] $(+ [$($(@$conn_var:ident =)? $(.global:$global_i:literal)? $($i:expr),* => $(.global:$global_j:literal)? $($j:expr),*);*] )? )* ) => {
@@ -195,6 +194,8 @@ macro_rules! chain_model {
     }
 }
 
+
+#[allow(unused_mut)]
 #[cfg(test)]
 mod tests {
     use crate::{
@@ -204,7 +205,7 @@ mod tests {
 
     #[test]
     fn model_test() {
-        let mut main_particle = 0;
+        let mut main_particle;
         let v = model! {
             METAL => .hex:true [0,1]
             GROUND; Link::Rigid { length: 1., durability: 1., elasticity: 10.} => .hex:true [@main_particle = 0,0.5; 1,0; 1,1] + [0=>1,2; 1=>2]

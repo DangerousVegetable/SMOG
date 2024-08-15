@@ -15,3 +15,4 @@ server = { path = "../server" }
 solver = { path = "../solver" }
 render = { path = "../render" }
 map-editor = { path = "../map-editor" }
+clipboard = "0.5.0"

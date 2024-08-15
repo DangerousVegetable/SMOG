@@ -2,9 +2,12 @@ use bevy::prelude::*;
 use bevy_simple_text_input::{
     TextInputBundle, TextInputInactive, TextInputPlugin, TextInputSystem, TextInputValue,
 };
+use clipboard::{ClipboardContext, ClipboardProvider};
 use packet_tools::game_packets::GamePacket;
 
-use crate::{display_error, network::client::GameClient, Client, GameError, GameState, PACKET_SIZE};
+use crate::{
+    display_error, network::client::GameClient, Client, GameError, GameState, PACKET_SIZE,
+};
 
 #[derive(Component)]
 struct MainMenu;
@@ -35,13 +38,15 @@ fn build(
         ..default()
     };
 
+    let node_style = Style {
+        width: Val::Px(600.0),
+        border: UiRect::all(Val::Px(5.0)),
+        padding: UiRect::all(Val::Px(5.0)),
+        ..default()
+    };
+
     let node_bundle = NodeBundle {
-        style: Style {
-            width: Val::Px(300.0),
-            border: UiRect::all(Val::Px(5.0)),
-            padding: UiRect::all(Val::Px(5.0)),
-            ..default()
-        },
+        style: node_style.clone(),
         border_color: BORDER_COLOR_INACTIVE.into(),
         background_color: BACKGROUND_COLOR.into(),
         // Prevent clicks on the input from also bubbling down to the container
@@ -68,7 +73,7 @@ fn build(
             // Make this container node bundle to be Interactive so that clicking on it removes
             // focus from the text input.
             Interaction::None,
-            MainMenu
+            MainMenu,
         ))
         .with_children(|parent| {
             parent.spawn((
@@ -79,14 +84,50 @@ fn build(
                     .with_inactive(true),
                 NicknameInput,
             ));
-            parent.spawn((
-                node_bundle.clone(),
-                TextInputBundle::default()
-                    .with_text_style(text_style.clone())
-                    .with_placeholder("127.0.0.1:8080", None)
-                    .with_inactive(true),
-                AddrInput,
-            ));
+
+            parent
+                .spawn(NodeBundle {
+                    style: Style {
+                        width: Val::Px(600.0),
+                        border: UiRect::all(Val::Px(5.0)),
+                        padding: UiRect::all(Val::Px(5.0)),
+                        flex_direction: FlexDirection::Row,
+                        ..default()
+                    },
+                    ..node_bundle.clone()
+                })
+                .with_children(|parent| {
+                    parent.spawn((
+                        NodeBundle {
+                            style: Style {
+                                width: Val::Percent(80.),
+                                ..node_style.clone()
+                            },
+                            ..node_bundle.clone()
+                        },
+                        TextInputBundle::default()
+                            .with_text_style(text_style.clone())
+                            .with_placeholder("127.0.0.1:8080", None)
+                            .with_inactive(true),
+                        AddrInput,
+                    ));
+                    parent
+                        .spawn((
+                            ButtonBundle {
+                                style: Style {
+                                    width: Val::Percent(20.),
+                                    ..node_style.clone()
+                                },
+                                border_color: BorderColor(BORDER_COLOR_INACTIVE),
+                                background_color: BACKGROUND_COLOR.into(),
+                                ..default()
+                            },
+                            PasteButton,
+                        ))
+                        .with_children(|parent| {
+                            parent.spawn(TextBundle::from_section("Paste", text_style.clone()));
+                        });
+                });
 
             parent
                 .spawn((
@@ -159,6 +200,28 @@ fn connect_system(
                     commands.insert_resource(Client(client));
                     next_state.set(GameState::InLobby);
                 }
+                Err(e) => display_error(&mut commands, &mut next_state, &e.to_string()),
+            }
+        }
+    }
+}
+
+fn paste_system(
+    mut commands: Commands,
+    mut addr: Query<&mut TextInputValue, With<AddrInput>>,
+    mut next_state: ResMut<NextState<GameState>>,
+    paste_button: Query<&Interaction, (With<PasteButton>, Changed<Interaction>)>,
+) {
+    let mut addr = addr.single_mut();
+    for interaction in &paste_button {
+        if matches!(interaction, Interaction::Pressed) {
+            let result = (|| {
+                let mut ctx: ClipboardContext = ClipboardProvider::new()?;
+                ctx.get_contents()
+            })();
+
+            match result {
+                Ok(paste_addr) => addr.0 = paste_addr,
                 Err(e) => display_error(&mut commands, &mut next_state, &e.to_string())
             }
         }
@@ -174,6 +237,9 @@ struct AddrInput;
 #[derive(Component)]
 struct ConnectButton;
 
+#[derive(Component)]
+struct PasteButton;
+
 pub struct MainMenuPlugin;
 
 impl Plugin for MainMenuPlugin {
@@ -183,11 +249,12 @@ impl Plugin for MainMenuPlugin {
             .add_systems(OnExit(GameState::Menu), despawn)
             .add_systems(
                 Update,
-                (focus.before(TextInputSystem), connect_system).run_if(in_state(GameState::Menu)),
+                (focus.before(TextInputSystem), connect_system, paste_system).run_if(in_state(GameState::Menu)),
             )
             .add_systems(
                 Update,
-                (|mut next_state: ResMut<NextState<GameState>>| {next_state.set(GameState::Menu)}).run_if(in_state(GameState::Error))
+                (|mut next_state: ResMut<NextState<GameState>>| next_state.set(GameState::Menu))
+                    .run_if(in_state(GameState::Error)),
             );
     }
 }

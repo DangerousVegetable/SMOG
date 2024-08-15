@@ -22,7 +22,7 @@ use bevy::{
             FragmentState, MultisampleState, PipelineCache, PrimitiveState,
             RawBufferVec, RenderPipelineDescriptor, SpecializedRenderPipeline,
             SpecializedRenderPipelines, TextureFormat, VertexState,
-        }, renderer::{RenderDevice, RenderQueue}, texture::{BevyDefault as _, GpuImage}, view::{ExtractedView}, MainWorld, Render, RenderApp, RenderSet
+        }, renderer::{RenderDevice, RenderQueue}, texture::{BevyDefault as _, GpuImage}, view::ExtractedView, MainWorld, Render, RenderApp, RenderSet
     },
 };
 

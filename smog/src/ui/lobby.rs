@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::{display_error, Client, GameError, GameState};
+use crate::{display_error, Client, GameState};
 
 #[derive(Component)]
 struct Lobby;
@@ -9,9 +9,9 @@ fn spawn(mut commands: Commands, asset_server: Res<AssetServer>) {
     let _lobby = build(&mut commands, &asset_server);
 }
 
-fn despawn(mut commands: Commands, main_menu: Query<Entity, With<Lobby>>) {
-    if let Ok(main_menu) = main_menu.get_single() {
-        commands.entity(main_menu).despawn_recursive();
+fn despawn(mut commands: Commands, lobby: Query<Entity, With<Lobby>>) {
+    if let Ok(lobby) = lobby.get_single() {
+        commands.entity(lobby).despawn_recursive();
     }
 }
 
@@ -29,16 +29,13 @@ fn build(commands: &mut Commands, asset_server: &Res<AssetServer>) -> Entity {
 
     let node_bundle = NodeBundle {
         style: Style {
-            width: Val::Px(300.0),
+            width: Val::Px(600.0),
             border: UiRect::all(Val::Px(5.0)),
             padding: UiRect::all(Val::Px(5.0)),
             ..default()
         },
         border_color: BORDER_COLOR_INACTIVE.into(),
         background_color: BACKGROUND_COLOR.into(),
-        // Prevent clicks on the input from also bubbling down to the container
-        // behind it
-        focus_policy: bevy::ui::FocusPolicy::Block,
         ..default()
     };
 
@@ -55,9 +52,6 @@ fn build(commands: &mut Commands, asset_server: &Res<AssetServer>) -> Entity {
                 },
                 ..default()
             },
-            // Make this container node bundle to be Interactive so that clicking on it removes
-            // focus from the text input.
-            Interaction::None,
             Lobby,
         ))
         .with_children(|parent| {

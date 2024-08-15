@@ -1,5 +1,5 @@
-use bevy::{
-    color::palettes::css::RED, input::mouse::MouseWheel, math::vec3, prelude::*,
+use bevy::{ 
+    input::mouse::MouseWheel, prelude::*,
     render::camera::ScalingMode, window::PrimaryWindow,
 };
 
@@ -16,7 +16,7 @@ use crate::controller::{model::RawPlayerModel, Controller};
 const SUB_TICKS: usize = 8;
 
 #[derive(Component)]
-struct GameController(Controller);
+pub struct GameController(pub Controller);
 
 fn setup_simulation(
     mut commands: Commands,
@@ -38,18 +38,19 @@ fn setup_simulation(
     });
 
     let mut solver = map_loader.map.solver();
+    let spawns = map_loader.map.spawns;
     let mut player_model = None;
     let mut players = Vec::new();
-    for (id, _) in lobby.players.iter() {
+    for (id, name) in lobby.players.iter() {
         let model = RawPlayerModel::place_in_solver(
             tank.clone(),
-            map_loader.map.spawns[*id as usize].pos,
+            spawns[*id as usize].pos,
             &mut solver,
         );
         if *id == lobby.id {
             player_model = Some(model.clone());
         }
-        players.push((*id, model));
+        players.push((*id, name.clone(), model));
     }
 
     let simulation = RenderedSimulation(solver);
@@ -74,8 +75,10 @@ fn setup_simulation(
         .insert(simulation)
         .insert(GameController(Controller::new(
             lobby.id,
+            client.0.name.clone(),
             player_model.unwrap(),
             players,
+            &spawns,
         )));
 }
 
@@ -88,6 +91,7 @@ fn despawn(commands: &mut Commands, controller: &Query<Entity, With<GameControll
 fn update_physics(
     client: Res<Client>,
     mut simulation: Query<(&mut RenderedSimulation, &mut GameController)>,
+    mut next_state: ResMut<NextState<GameState>>,
 ) {
     let (mut simulation, mut controller) = simulation.single_mut();
     let packets = client.0.get_packets(1 * SUB_TICKS);
@@ -96,6 +100,10 @@ fn update_physics(
     for p in packets {
         controller.0.handle_packets(&mut simulation.0, &p);
         simulation.0.solve(dt);
+        if controller.0.get_winners(&simulation.0).is_some() {
+            next_state.set(GameState::EndGame);
+            return;
+        }
     }
 }
 
@@ -220,12 +228,17 @@ fn control_system(
     }
 }
 
+fn close_connection(mut commands: Commands) {
+    commands.remove_resource::<Client>();
+}
+
 pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Time::<Fixed>::from_hz(64.0))
             .add_systems(OnEnter(GameState::InGame), setup_simulation)
+            .add_systems(OnExit(GameState::InGame), close_connection)
             .add_systems(Update, (control_system).run_if(in_state(GameState::InGame)))
             .add_systems(
                 FixedUpdate,
