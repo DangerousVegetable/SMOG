@@ -115,7 +115,7 @@ struct SimulationBuffers {
 
     // uniform bind group
     uniforms_bind_group: BindGroup,
-    uniforms: Buffer,
+    _uniforms: Buffer,
 
     // textures bind group
     textures_bind_group: BindGroup,
@@ -407,7 +407,7 @@ fn prepare_simulation_buffers(
                 vertices,
                 particles,
                 indices,
-                uniforms,
+                _uniforms: uniforms,
                 uniforms_bind_group,
                 textures_bind_group,
             });

@@ -15,7 +15,7 @@ pub mod model;
 pub struct Player {
     pub id: u8,
     pub team: usize,
-    pub name: String,
+    pub _name: String,
     pub model: PlayerModel,
     pub gear: usize,
     pub projectile: u8,
@@ -36,7 +36,7 @@ impl Player {
         Self {
             id,
             team,
-            name,
+            _name: name,
             model,
             gear: 0,
             projectile: 0,
@@ -292,17 +292,20 @@ fn get_color(a: f32) -> Vec4 {
 #[derive(Clone, Default)]
 pub struct TickTimer {
     pub tick: isize,
+    last: isize,
 }
 
 impl TickTimer {
     pub fn new() -> Self {
         Self {
             tick: 0,
+            last: 0,
         }
     }
 
     pub fn set(&mut self, ticks: isize) {
         self.tick = ticks;
+        self.last = ticks;
     }
 
     pub fn update(&mut self) {
@@ -319,10 +322,18 @@ impl TickTimer {
 
     pub fn map_or<U, F: FnOnce() -> U>(&mut self, default: U, ticks: isize, f: F) -> U {
         if self.ready() {
-            self.tick = ticks;
+            self.set(ticks);
             f()
         } else {
             default
         }
+    }
+
+    pub fn progress(&self) -> f32 {
+        if self.last <= 0 {
+            return 1.
+        }
+        let elapsed = self.last - self.tick;
+        (elapsed as f32 / self.last as f32).clamp(0., 1.)
     }
 }

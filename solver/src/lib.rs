@@ -159,7 +159,7 @@ impl Solver {
         }
     }
 
-    pub fn resolve_interaction(p1: &mut Particle, p2: &mut Particle, i: usize, j: usize) {
+    pub fn resolve_interaction(p1: &mut Particle, p2: &mut Particle, _i: usize, j: usize) {
         match p1.kind.borrow_mut() {
             Kind::Motor(acc) => {
                 let v = (p2.pos - p1.pos).normalize_or_zero();
@@ -286,11 +286,6 @@ impl Solver {
                 self.special.push(i + particles_num);
             }
         }
-    }
-
-    fn rnd_origin(&self) -> Vec2 {
-        let bounds = self.constraint.bounds();
-        rnd_in_bounds(bounds, 2. * PARTICLE_RADIUS)
     }
 }
 
