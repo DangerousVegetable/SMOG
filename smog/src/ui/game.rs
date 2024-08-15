@@ -210,9 +210,9 @@ fn control_system(
     }
     // rotation
     if keyboard.pressed(KeyCode::KeyQ) {
-        packets.extend(&controller.0.rotate_tank(-0.04));
+        packets.extend(&controller.0.rotate_tank(-0.01));
     } else if keyboard.pressed(KeyCode::KeyE) {
-        packets.extend(&controller.0.rotate_tank(0.04));
+        packets.extend(&controller.0.rotate_tank(0.01));
     } 
     if keyboard.just_released(KeyCode::KeyQ) || keyboard.just_released(KeyCode::KeyE) {
         packets.extend(&controller.0.rotate_tank(0.))

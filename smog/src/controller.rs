@@ -146,8 +146,8 @@ impl Controller {
 
             // thrust
             if player.thrust.0 != 0. || player.thrust.1 != 0. {
-                solver.particles[*left_motor].set_velocity(player.thrust.0*direction_up);
-                solver.particles[*right_motor].set_velocity(player.thrust.1*direction_up);
+                solver.particles[*left_motor].add_velocity(player.thrust.0*direction_up);
+                solver.particles[*right_motor].add_velocity(player.thrust.1*direction_up);
             }
 
             // aim
