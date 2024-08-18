@@ -211,9 +211,9 @@ fn control_system(
     // rotation
     let hp = controller.0.get_player_hp(&controller.0.player, &simulation.0);
     if keyboard.pressed(KeyCode::KeyQ) {
-        packets.extend(&controller.0.rotate_tank(-0.08 * hp));
+        packets.extend(&controller.0.rotate_tank(-0.1 * hp));
     } else if keyboard.pressed(KeyCode::KeyE) {
-        packets.extend(&controller.0.rotate_tank(0.08 * hp));
+        packets.extend(&controller.0.rotate_tank(0.1 * hp));
     } 
     if keyboard.just_released(KeyCode::KeyQ) || keyboard.just_released(KeyCode::KeyE) {
         packets.extend(&controller.0.rotate_tank(0.))
