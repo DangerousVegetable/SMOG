@@ -87,6 +87,10 @@ impl Controller {
         solver.particles[player.model.center].pos
     }
 
+    pub fn get_player_hp(&self, player: &Player, solver: &Solver) -> f32 {
+        solver.connections[player.model.center_connection].2.durability() / TANK_HP
+    }
+
     pub fn get_winners(&self, solver: &Solver) -> Option<(usize, Vec<&Player>)> {
         let mut team_num = HashMap::<usize, Vec<&Player>>::new();
         for p in self.players.iter() {
@@ -118,9 +122,8 @@ impl Controller {
 
     fn update_player_colors(&self, solver: &mut Solver) {
         for player in self.players.iter() {
+            let hp = self.get_player_hp(player, solver);
             let center = &mut solver.particles[player.model.center];
-            let hp_connection = solver.connections[player.model.center_connection];
-            let hp = hp_connection.2.durability() / TANK_HP;
             center.color = get_color(hp);
 
             for pistol in &player.model.pistols {

@@ -18,7 +18,7 @@ pub const TREAD_HP: f32 = 3.;
 pub const BASE_HP: f32 = 4.;
 pub const BASE_ELASTICITY: f32 = 30.;
 
-pub const PISTOL_HP: f32 = 3.;
+pub const PISTOL_HP: f32 = 7.;
 pub const PISTOL_ELASTICITY: f32 = 20.;
 
 #[derive(Default, Clone)]
