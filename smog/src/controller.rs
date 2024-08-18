@@ -139,6 +139,7 @@ impl Controller {
         for player in &self.players {
             if !Self::player_alive(player, solver) { continue; }
 
+            if self.tick % 8 == 0 {
             let left_motor = player.model.right_motors.first().unwrap();
             let right_motor = player.model.right_motors.last().unwrap();
 
@@ -149,12 +150,11 @@ impl Controller {
 
             // thrust
             if player.thrust.0 != 0. || player.thrust.1 != 0. {
-                solver.particles[*left_motor].add_velocity(player.thrust.0*direction_up);
-                solver.particles[*right_motor].add_velocity(player.thrust.1*direction_up);
+                solver.particles[*left_motor].set_velocity(player.thrust.0*direction_up);
+                solver.particles[*right_motor].set_velocity(player.thrust.1*direction_up);
             }
 
             // aim
-            if self.tick % 8 == 0 {
                 let Some(desired_pos) = player.aim else { continue };
                 let mut desired_pos = (desired_pos - center.pos).normalize() * 6. + center.pos;
                 if (desired_pos - center.pos).dot(direction_up) < -0.1 {

@@ -151,7 +151,7 @@ fn control_system(
     mut next_state: ResMut<NextState<GameState>>,
 ) {
     let (camera, mut projection, mut camera_transform) = camera.single_mut();
-    let (mut simulation, mut controller) = simulation.single_mut();
+    let (simulation, mut controller) = simulation.single_mut();
     let window = windows.single();
 
     // camera
@@ -211,9 +211,9 @@ fn control_system(
     // rotation
     let hp = controller.0.get_player_hp(&controller.0.player, &simulation.0);
     if keyboard.pressed(KeyCode::KeyQ) {
-        packets.extend(&controller.0.rotate_tank(-0.01 * hp));
+        packets.extend(&controller.0.rotate_tank(-0.08 * hp));
     } else if keyboard.pressed(KeyCode::KeyE) {
-        packets.extend(&controller.0.rotate_tank(0.01 * hp));
+        packets.extend(&controller.0.rotate_tank(0.08 * hp));
     } 
     if keyboard.just_released(KeyCode::KeyQ) || keyboard.just_released(KeyCode::KeyE) {
         packets.extend(&controller.0.rotate_tank(0.))
