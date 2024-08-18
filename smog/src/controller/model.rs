@@ -7,41 +7,44 @@ use solver::{
     Connection, Link, Model, Solver,
 };
 
-pub const TANK_HP: f32 = 7.;
-pub const TANK_ELASTICITY: f32 = 10.;
+pub const CENTER_HP: f32 = 1.;
+pub const CENTER_ELASTICITY: f32 = 100.;
 
 pub const MUZZLE_ELASTICITY: f32 = 100.;
 
 pub const TREAD_ELASTICITY: f32 = 30.;
 pub const TREAD_HP: f32 = 3.;
 
-pub const BASE_HP: f32 = 4.;
-pub const BASE_ELASTICITY: f32 = 30.;
+pub const BASE_HP: f32 = 12.;
+pub const BASE_ELASTICITY: f32 = 10.;
 
 pub const PISTOL_HP: f32 = 7.;
-pub const PISTOL_ELASTICITY: f32 = 20.;
+pub const PISTOL_ELASTICITY: f32 = 25.;
 
 #[derive(Default, Clone)]
 pub struct RawPlayerModel {
     pub particles: Vec<Particle>,
     pub connections: Vec<Connection>,
-    pub left_motors: Vec<usize>,  // controlled motors
-    pub right_motors: Vec<usize>, // controlled motors
-    pub pistols: Vec<usize>,      // controlled connnections
-    pub center: usize,            // main particle
-    pub muzzle: usize,            // end of the muzzle
-    pub center_connection: usize, // hp
+    pub base_connections: Vec<usize>, // base connections
+    pub left_motors: Vec<usize>,      // controlled motors
+    pub right_motors: Vec<usize>,     // controlled motors
+    pub pistols: Vec<usize>,          // controlled connnections
+    pub center: usize,                // main particle
+    pub muzzle: usize,                // end of the muzzle
+    pub center_connection: usize,     // hp
 }
 
 #[derive(Debug, Default, Clone)]
 pub struct PlayerModel {
-    pub range: Range<usize>,    // size of the model (in number of particles)
-    pub left_motors: Vec<usize>,  // controlled motors
-    pub right_motors: Vec<usize>, // controlled motors
-    pub pistols: Vec<usize>,      // controlled connnections
-    pub center: usize,            // main particle
-    pub muzzle: usize,            // end of the muzzle
-    pub center_connection: usize, // hp
+    pub range: Range<usize>,          // range of the particles in the solver
+    pub max_hp: f32,                  // max health of the base
+    pub base_connections: Vec<usize>, // base connections
+    pub left_motors: Vec<usize>,      // controlled motors
+    pub right_motors: Vec<usize>,     // controlled motors
+    pub pistols: Vec<usize>,          // controlled connnections
+    pub center: usize,                // main particle
+    pub muzzle: usize,                // end of the muzzle
+    pub center_connection: usize,     // hp
 }
 
 impl PlayerModel {
@@ -70,6 +73,7 @@ impl RawPlayerModel {
         let mut muzzle_end;
 
         let mut main_connection = 0;
+        let mut last_base_connection = 0;
         let (mut pistol1, mut pistol2) = (0, 0);
 
         let (mut l0, mut l1, mut l2, mut l3, mut l4, mut l5) = (0, 0, 0, 0, 0, 0); // left motors
@@ -92,7 +96,7 @@ impl RawPlayerModel {
                 @pistol2 = .global:true right_base => .global:true muzzle_end
             ]
 
-            none; link.with_durability(TANK_HP).with_elasticity(TANK_ELASTICITY) => .hex:false [] + [
+            none; link.with_durability(CENTER_HP).with_elasticity(CENTER_ELASTICITY) => .hex:false [] + [
                 @main_connection = .global:true center_base => .global:true main
             ]
 
@@ -103,7 +107,7 @@ impl RawPlayerModel {
                 0 => 1; 1 => 2; 2 => 3; 3 => 4; 4 => 5; 0 => 5; 1 => 4; 0 => 4;
                 0,1 => 6; 4,5 => 8; 2,3 => 7;
 
-                .global:true left_base => 0,1; .global:true center_base => 2,3; .global:true right_base => 4,5
+                .global:true left_base => 0,1; .global:true center_base => 2,3; @last_base_connection = .global:true right_base => 4,5
             ]
         };
 
@@ -117,6 +121,7 @@ impl RawPlayerModel {
         Self {
             particles: tank.particles,
             connections: tank.connections,
+            base_connections: (0..=last_base_connection).collect(),
             center: main,
             muzzle: muzzle_end,
             center_connection: main_connection,
@@ -139,7 +144,9 @@ impl RawPlayerModel {
         let particles = solver.size();
         let connections = solver.connections.len();
         let player_model = PlayerModel {
-            range: particles..particles+self.particles.len(),
+            range: particles..particles + self.particles.len(),
+            max_hp: self.base_connections.iter().map(|i| self.connections[*i].2.durability()).sum(),
+            base_connections: self.base_connections.iter().map(|m| *m + connections).collect(),
             left_motors: self.left_motors.iter().map(|m| *m + particles).collect(),
             right_motors: self.right_motors.iter().map(|m| *m + particles).collect(),
             pistols: self.pistols.iter().map(|m| *m + connections).collect(),

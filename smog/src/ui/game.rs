@@ -133,7 +133,7 @@ fn update_banners(
     let (simulation, controller) = simulation.single();
     for (mut transform, id) in &mut banners {
         let player = controller.0.get_player(id.0).unwrap();
-        let pos = controller.0.get_player_pos(player, &simulation.0) + vec2(0., 10.);
+        let pos = Controller::get_player_pos(player, &simulation.0) + vec2(0., 10.);
         *transform = Transform::from_translation(pos.extend(-0.5)).with_scale(vec3(0.1, 0.1, 1.));
     }
 }
@@ -209,7 +209,7 @@ fn control_system(
         controller.0.player.gear_down()
     }
     // rotation
-    let hp = controller.0.get_player_hp(&controller.0.player, &simulation.0);
+    let hp = Controller::get_player_hp(&controller.0.player, &simulation.0);
     if keyboard.pressed(KeyCode::KeyQ) {
         packets.extend(&controller.0.rotate_tank(-0.1 * hp));
     } else if keyboard.pressed(KeyCode::KeyE) {
