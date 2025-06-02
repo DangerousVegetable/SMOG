@@ -660,6 +660,7 @@ fn control_system(
             info!("Switching to layer: {ind}");
         }
 
+        // FIXME: repeating code
         let layer_ind = constructor.1;
         let layer = &mut constructor.0.layers[layer_ind];
         if keyboard.pressed(KeyCode::AltLeft) {

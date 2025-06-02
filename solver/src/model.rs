@@ -36,7 +36,7 @@ impl Add for Model {
 pub const SHIFT_X: Vec2 = vec2(1., 0.);
 pub const SHIFT_Y: Vec2 = vec2(0.5, 0.86602540378443864676372317075294);
 
-
+/// Macro to create particle models.
 #[macro_export]
 macro_rules! model {
     ( $($p:expr $(;$l:expr)? => $(.offset:$offset:expr,)? .hex:$hex:literal [$($(@$part_var:ident =)? $x:expr, $y:expr);*] $(+ [$($(@$conn_var:ident =)? $(.global:$global_i:literal)? $($i:expr),* => $(.global:$global_j:literal)? $($j:expr),*);*] )? )* ) => {
@@ -110,6 +110,7 @@ macro_rules! model {
     };
 }
 
+/// Macro to create chained-particle models (i.e. tank treads).
 #[macro_export]
 macro_rules! chain_model {
     ($p:expr; $l:expr; $($step:literal=>$adj_p:expr; $adj_l:expr)? => .start:$start:expr; $($direction:ident : $num:literal),*) => {

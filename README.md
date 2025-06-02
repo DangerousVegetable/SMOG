@@ -1,0 +1,2 @@
+# SMOG Source Code
+This is the official source code for the [SMOG]() project. I originally intended to release it a year ago after cleaning it up, but things didn’t go as planned. Since then, my coding style has evolved significantly, and I now find it difficult to refactor what I once considered readable. I sincerely apologize for the code's current state and do not recommend using it as a reference in your projects — though it may still contain some insightful ideas.

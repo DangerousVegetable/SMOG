@@ -11,6 +11,7 @@ pub mod server_packets;
 
 pub trait Packet<const SIZE: usize>: Clone + Copy + Send + Sync + 'static + std::fmt::Debug {
     fn to_bytes(&self) -> [u8; SIZE];
+    // FIXME: why does this method return `Self` and not `Result<Self>` ???
     fn from_bytes(value: &[u8; SIZE]) -> Self;
 }
 

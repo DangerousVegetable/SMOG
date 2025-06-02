@@ -66,7 +66,8 @@ impl Solver {
 
     pub fn solve(&mut self, dt: f32) {
         // populate the grid with indexes of particles
-        self.populate_grid(); // TODO: for some reason it's slow in debug mode
+        // FIXME: biggest bottleneck
+        self.populate_grid(); // ISSUE: for some reason it's slow in debug mode
 
         self.resolve_collisions();
         self.resolve_connections();
@@ -79,6 +80,7 @@ impl Solver {
         });
     }
 
+    // FIXME: this seems messy
     fn resolve_collisions(&mut self) {
         let even: Vec<Range<usize>> = (1..self.grid.width - 1)
             .filter(|i| i % 4 == 1)
@@ -94,6 +96,8 @@ impl Solver {
         let particles = UnsafeMultithreadedArray::new(&mut self.particles); // create unsafe array that can be manipulated in threads
         let grid: &Grid<usize> = self.grid.borrow();
 
+
+        // WOW THIS IS SOME MESS
         for group in groups {
             group.par_iter().for_each(|range| {
                 for col in range.clone() {
